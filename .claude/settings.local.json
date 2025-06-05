@@ -8,7 +8,8 @@
       "Bash(pgrep:*)",
       "Bash(kill:*)",
       "Bash(python:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(grep:*)"
     ]
   },
   "enableAllProjectMcpServers": false

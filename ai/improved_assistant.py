@@ -63,6 +63,8 @@ class ImprovedAIAssistant:
         - LIST_PROJECT_MEMBERS: List project members
         - AUTO_ASSIGN_USERS: Auto-assign users to project
         - QUERY_STATUS: Answer natural language questions about projects, sprints, tasks with AI analysis
+          Required data: query, entity_type, entity_name, entity_id (optional)
+          Example: {"type": "QUERY_STATUS", "data": {"query": "cuantas tareas faltan", "entity_type": "project", "entity_name": "JAI-VIER", "entity_id": 173}}
         
         RESPONSE FORMAT:
         {
@@ -120,6 +122,14 @@ class ImprovedAIAssistant:
             "response_template": "✅ Created complete project with sprint and 3 tasks!"
         }
         
+        "cuántas tareas faltan del proyecto JAI-VIER":
+        {
+            "operations": [
+                {"type": "QUERY_STATUS", "data": {"query": "cuántas tareas faltan del proyecto JAI-VIER", "entity_type": "project", "entity_name": "JAI-VIER"}}
+            ],
+            "response_template": "📋 Checking pending tasks for project JAI-VIER..."
+        }
+        
         IMPORTANT GUIDELINES:
         - ALWAYS create individual CREATE_TASK operations for each task mentioned
         - DO NOT include task lists in sprint descriptions - create separate tasks instead
@@ -129,6 +139,15 @@ class ImprovedAIAssistant:
     
     async def generate_operations(self, user_message: str, context: Optional[Dict] = None) -> Dict:
         try:
+            # For query operations, always use fallback to ensure proper entity extraction
+            message_lower = user_message.lower()
+            if any(phrase in message_lower for phrase in [
+                "como va", "como está", "cómo va", "cómo está", "que tal va", "qué tal va",
+                "how is", "status of", "estado de", "estado del", "que necesita", "qué necesita",
+                "progress", "progreso", "resumen", "summary", "oye y el", "hey and the"
+            ]):
+                return self._fallback_operations(user_message, context)
+            
             if not self.model:
                 return self._fallback_operations(user_message, context)
             
@@ -689,9 +708,15 @@ class ImprovedAIAssistant:
         elif any(phrase in message_lower for phrase in [
             "como va", "como está", "cómo va", "cómo está", "que tal va", "qué tal va",
             "how is", "status of", "estado de", "estado del", "que necesita", "qué necesita",
-            "progress", "progreso", "resumen", "summary", "oye y el", "hey and the"
+            "progress", "progreso", "resumen", "summary", "oye y el", "hey and the",
+            "cuantas tareas", "cuántas tareas", "how many tasks", "tareas faltan", "tareas pendientes",
+            "tareas quedan", "tasks left", "tasks remaining", "cuantas quedan", "cuántas quedan",
+            "dame los nombres", "cuales son las tareas", "cuáles son las tareas", "que tareas", "qué tareas",
+            "lista de tareas", "names of tasks", "task names", "show me tasks"
         ]):
-            query = original_message if len(original_message) < 500 else message_lower
+            # Use the original message for better entity extraction
+            query = user_message
+            original_message = user_message
             
             # Determine entity type and name from query
             entity_type = "general"
@@ -700,18 +725,38 @@ class ImprovedAIAssistant:
             
             if any(word in message_lower for word in ["proyecto", "project"]):
                 entity_type = "project"
-                # Extract project name or ID
-                for keyword in ["proyecto", "project"]:
-                    if keyword in message_lower:
-                        parts = message_lower.split(keyword)
-                        if len(parts) > 1:
-                            name_part = parts[-1].strip()
-                            # Clean up common words
-                            for stop in [" como va", " cómo va", " how is", " status"]:
-                                if stop in name_part:
-                                    name_part = name_part.split(stop)[0].strip()
-                            entity_name = name_part.title() if name_part else ""
+                # Extract project name or ID - look for patterns like "proyecto JAI-VIER"
+                import re
+                
+                # Try to extract project name preserving original case
+                original_match = re.search(r"proyecto\s+([a-zA-Z0-9\-_]+)", original_message, re.IGNORECASE)
+                if original_match:
+                    entity_name = original_match.group(1)
+                else:
+                    # Try other patterns
+                    patterns = [
+                        r"project\s+([a-zA-Z0-9\-_]+)",
+                        r"el\s+proyecto\s+([a-zA-Z0-9\-_]+)"
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, original_message, re.IGNORECASE)
+                        if match:
+                            entity_name = match.group(1)
                             break
+                
+                # Fallback to original method if regex didn't work
+                if not entity_name:
+                    for keyword in ["proyecto", "project"]:
+                        if keyword in message_lower:
+                            parts = message_lower.split(keyword)
+                            if len(parts) > 1:
+                                name_part = parts[-1].strip()
+                                # Clean up common words
+                                for stop in [" como va", " cómo va", " how is", " status"]:
+                                    if stop in name_part:
+                                        name_part = name_part.split(stop)[0].strip()
+                                entity_name = name_part.upper() if name_part else ""
+                                break
             
             elif any(word in message_lower for word in ["sprint"]):
                 entity_type = "sprint"
@@ -744,6 +789,13 @@ class ImprovedAIAssistant:
             id_match = re.search(r'\b(\d+)\b', message_lower)
             if id_match:
                 entity_id = int(id_match.group(1))
+            
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"[FALLBACK] Extracted entity_type='{entity_type}', entity_name='{entity_name}', entity_id={entity_id}")
+            logger.info(f"[FALLBACK] Original message: '{original_message}'")
+            logger.info(f"[FALLBACK] Message lower: '{message_lower}'")
             
             return {
                 "operations": [

@@ -337,10 +337,15 @@ Para proyectos complejos, te recomiendo:
             if not is_create_command and not is_delete_command and not is_assignment_command and not is_removal_command:
                 list_keywords = ["mostrar tarea", "list task", "ver tarea", "listar tarea"]
                 
-                if any(keyword in message for keyword in list_keywords):
+                # Check for query keywords that should NOT trigger task listing
+                query_keywords = ["cuantas tareas", "cuántas tareas", "how many tasks", "tareas faltan", "tareas pendientes", 
+                                "tareas quedan", "tasks left", "tasks remaining", "como va", "cómo va", "estado del"]
+                is_query_command = any(query_word in message for query_word in query_keywords)
+                
+                if not is_query_command and any(keyword in message for keyword in list_keywords):
                     await self.list_tasks_command(update, context)
                     return
-                elif "tareas" in message:
+                elif not is_query_command and "tareas" in message and not any(word in message for word in ["del proyecto", "of project", "en el proyecto"]):
                     await self.list_tasks_command(update, context)
                     return
             

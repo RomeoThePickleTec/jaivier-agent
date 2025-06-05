@@ -1197,7 +1197,7 @@ class JSONExecutor:
             entity_name = data.get("entity_name", "")
             entity_id = data.get("entity_id")
             
-            logger.info(f"Processing natural query: '{query}' for {entity_type} '{entity_name}'")
+            logger.info(f"Processing natural query: '{query}' for {entity_type} '{entity_name}' (ID: {entity_id})")
             
             # Gather relevant data based on query
             context_data = await self._gather_context_for_query(entity_type, entity_name, entity_id)
@@ -1235,35 +1235,79 @@ class JSONExecutor:
             if entity_type == "project":
                 # Find project by name or ID
                 if entity_id:
-                    project = await self.api_manager.projects.get_by_id(entity_id)
+                    project_id = entity_id
                 else:
                     projects = await self.api_manager.projects.get_all()
                     project = None
+                    
+                    logger.info(f"Searching for project '{entity_name}' among {len(projects)} projects")
+                    logger.info(f"Available projects: {[p.get('name') for p in projects]}")
+                    
+                    # First try exact match
                     for p in projects:
                         if p.get("name", "").lower() == entity_name.lower():
                             project = p
+                            project_id = p.get("id")
+                            logger.info(f"Found exact match: {p.get('name')} (ID: {project_id})")
                             break
+                    
+                    # If no exact match, try fuzzy matching
+                    if not project and entity_name:
+                        logger.info(f"No exact match found, trying fuzzy matching for '{entity_name}'")
+                        for p in projects:
+                            project_name = p.get("name", "").lower()
+                            search_name = entity_name.lower()
+                            
+                            # Check if search name is contained in project name or vice versa
+                            if search_name in project_name or project_name in search_name:
+                                project = p
+                                project_id = p.get("id")
+                                logger.info(f"Found fuzzy match (containment): {p.get('name')} (ID: {project_id})")
+                                break
+                            
+                            # Check for similar names (ignoring hyphens, underscores, spaces)
+                            clean_project = project_name.replace("-", "").replace("_", "").replace(" ", "")
+                            clean_search = search_name.replace("-", "").replace("_", "").replace(" ", "")
+                            
+                            if clean_search in clean_project or clean_project in clean_search:
+                                project = p
+                                project_id = p.get("id")
+                                logger.info(f"Found fuzzy match (cleaned): {p.get('name')} (ID: {project_id})")
+                                break
+                    
+                    if not project:
+                        return None
                 
-                if not project:
+                # Get full project data with sprints and tasks using the specific endpoint
+                logger.info(f"Getting full project data for project ID: {project_id}")
+                project_with_details = await self._get_project_with_details(project_id)
+                
+                if not project_with_details:
                     return None
                 
-                project_id = project.get("id")
-                context["project"] = project
+                context["project"] = project_with_details
                 
-                # Get sprints for this project
-                sprints = await self.api_manager.sprints.get_all(project_id)
+                # Extract sprints and tasks from the detailed project data
+                sprints = project_with_details.get("sprints", [])
                 context["sprints"] = sprints
                 
-                # Get tasks for this project
-                tasks = await self.api_manager.tasks.get_all(project_id)
+                # Extract all tasks from all sprints
+                tasks = []
+                for sprint in sprints:
+                    sprint_tasks = sprint.get("tasks", [])
+                    tasks.extend(sprint_tasks)
+                
                 context["tasks"] = tasks
+                logger.info(f"Found {len(tasks)} tasks in {len(sprints)} sprints for project {project_with_details.get('name')}")
                 
                 # Get project members
                 members = await self.api_manager.project_members.get_by_project(project_id)
                 context["members"] = members
                 
                 # Calculate statistics
-                context["stats"] = self._calculate_project_stats(project, sprints, tasks, members)
+                logger.info(f"Calculating stats for project {project_with_details.get('name')} with {len(tasks)} tasks, {len(sprints)} sprints, {len(members)} members")
+                context["stats"] = self._calculate_project_stats(project_with_details, sprints, tasks, members)
+                logger.info(f"Project stats calculated: {context['stats']}")
                 
             elif entity_type == "sprint":
                 # Find sprint by name
@@ -1335,6 +1379,23 @@ class JSONExecutor:
             
         except Exception as e:
             logger.error(f"Error gathering context: {e}")
+            return None
+    
+    async def _get_project_with_details(self, project_id: int) -> Dict:
+        """Get full project data with sprints and tasks using specific endpoint"""
+        try:
+            # Use the specific endpoint that returns complete project data
+            result = await self.api_manager.client._make_request("GET", f"/projectlist/{project_id}")
+            
+            if isinstance(result, dict) and not result.get('error'):
+                logger.info(f"Successfully retrieved project details for ID {project_id}")
+                return result
+            else:
+                logger.error(f"Error retrieving project details: {result}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Exception getting project details for ID {project_id}: {e}")
             return None
     
     def _calculate_project_stats(self, project: Dict, sprints: List[Dict], tasks: List[Dict], members: List[Dict]) -> Dict:
@@ -1435,6 +1496,10 @@ class JSONExecutor:
             # Prepare context for AI
             ai_prompt = self._build_analysis_prompt(query, context_data, entity_type)
             
+            # Debug logging
+            logger.info(f"AI Analysis Debug - Entity: {entity_type}")
+            logger.info(f"AI Analysis Debug - Context Stats: {context_data.get('stats', {})}")
+            
             # Generate AI response
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(ai_prompt)
@@ -1472,6 +1537,44 @@ class JSONExecutor:
             - Sprints totales: {stats.get('total_sprints', 0)}
             - Sprints activos: {stats.get('active_sprints', 0)}
             - Tamaño del equipo: {stats.get('team_size', 0)}
+            
+            TAREAS DEL PROYECTO:"""
+            
+            # Add task information to the prompt
+            tasks = context_data.get("tasks", [])
+            if tasks:
+                for task in tasks[:20]:  # Limit to prevent prompt overflow
+                    status_text = ["Pendiente", "En progreso", "Completada"][task.get("status", 0)]
+                    prompt += f"""
+            - "{task.get('title', 'Sin título')}" (Status: {status_text})"""
+            
+            prompt += f"""
+            
+            INSTRUCCIONES PARA DIFERENTES TIPOS DE PREGUNTAS:
+
+            1. PREGUNTAS DE CONTEO (responder SOLO el número, SIN análisis):
+            - "cuántas tareas faltan" → "{stats.get('todo_tasks', 0)} tareas pendientes"
+            - "cuántas tareas quedan" → "{stats.get('todo_tasks', 0) + stats.get('in_progress_tasks', 0)} tareas restantes"  
+            - "cuántas tareas hay" → "{stats.get('total_tasks', 0)} tareas en total"
+            - "cuántas tareas completadas" → "{stats.get('completed_tasks', 0)} tareas completadas"
+
+            2. PREGUNTAS DE LISTADO (RESPONDER EXCLUSIVAMENTE LA LISTA):
+            Si la pregunta contiene "dame los nombres", "cuáles son", "que tareas", "lista de tareas":
+            - Buscar ÚNICAMENTE las tareas con status 0 (pendientes)
+            - Responder EXCLUSIVAMENTE:
+            "Tareas pendientes del proyecto [NOMBRE]:
+            • [Título tarea 1]  
+            • [Título tarea 2]
+            • [Título tarea 3]"
+            - TERMINAR LA RESPUESTA AHÍ
+            - PROHIBIDO: análisis, recomendaciones, explicaciones, contexto adicional
+
+            3. PREGUNTAS DE ANÁLISIS (dar análisis completo SOLO si NO es pregunta de listado):
+            - "como va el proyecto" → Análisis detallado
+            - "estado del proyecto" → Resumen con recomendaciones  
+            - "resumen del proyecto" → Análisis completo
+
+            REGLA CRÍTICA: Si detectas palabras como "dame los nombres", "cuáles son las tareas", es TIPO 2, NO análisis.
             
             Proporciona un análisis detallado que incluya:
             1. Estado actual del proyecto
@@ -1543,11 +1646,48 @@ class JSONExecutor:
     def _generate_fallback_analysis(self, query: str, context_data: Dict, entity_type: str) -> str:
         """Generate fallback analysis when AI is not available"""
         stats = context_data.get("stats", {})
+        query_lower = query.lower()
         
         if entity_type == "project":
             project = context_data.get("project", {})
             progress = stats.get("progress_percentage", 0)
             
+            # Check for specific task count questions - give direct, short answers
+            if any(phrase in query_lower for phrase in ["cuantas tareas faltan", "cuántas tareas faltan", "tareas pendientes"]):
+                pending_tasks = stats.get('todo_tasks', 0)
+                return f"📋 {pending_tasks} tareas pendientes en el proyecto {project.get('name', 'N/A')}"
+            
+            elif any(phrase in query_lower for phrase in ["cuantas tareas quedan", "cuántas tareas quedan", "tasks remaining"]):
+                remaining_tasks = stats.get('todo_tasks', 0) + stats.get('in_progress_tasks', 0)
+                return f"📋 {remaining_tasks} tareas restantes en el proyecto {project.get('name', 'N/A')}"
+            
+            elif any(phrase in query_lower for phrase in ["cuantas tareas hay", "cuántas tareas hay", "total tareas"]):
+                total_tasks = stats.get('total_tasks', 0)
+                return f"📋 {total_tasks} tareas en total en el proyecto {project.get('name', 'N/A')}"
+            
+            elif any(phrase in query_lower for phrase in ["cuantas tareas completadas", "cuántas tareas completadas", "tareas completadas"]):
+                completed_tasks = stats.get('completed_tasks', 0)
+                return f"📋 {completed_tasks} tareas completadas en el proyecto {project.get('name', 'N/A')}"
+            
+            elif any(phrase in query_lower for phrase in ["dame los nombres", "cuales son las tareas", "cuáles son las tareas", "que tareas faltan", "qué tareas faltan", "lista de tareas"]):
+                tasks = context_data.get('tasks', [])
+                pending_tasks = [t for t in tasks if t.get('status') == 0]  # Status 0 = pending
+                
+                if "pendientes" in query_lower or "faltan" in query_lower or "faltantes" in query_lower:
+                    if not pending_tasks:
+                        return f"📋 No hay tareas pendientes en el proyecto {project.get('name', 'N/A')}"
+                    
+                    task_names = [f"• {t.get('title', 'Sin título')}" for t in pending_tasks]
+                    return f"📋 Tareas pendientes del proyecto {project.get('name', 'N/A')}:\n\n" + "\n".join(task_names)
+                else:
+                    # All tasks
+                    if not tasks:
+                        return f"📋 No hay tareas en el proyecto {project.get('name', 'N/A')}"
+                    
+                    task_names = [f"• {t.get('title', 'Sin título')}" for t in tasks]
+                    return f"📋 Todas las tareas del proyecto {project.get('name', 'N/A')}:\n\n" + "\n".join(task_names)
+            
+            # Default project analysis
             analysis = f"📊 **Estado del Proyecto {project.get('name', 'N/A')}**\n\n"
             analysis += f"**Progreso general:** {progress}% completado\n"
             analysis += f"**Tareas:** {stats.get('completed_tasks', 0)}/{stats.get('total_tasks', 0)} completadas\n"
@@ -1794,6 +1934,8 @@ class JSONExecutor:
                 return self._format_bulk_deletion(result["data"])
             elif result_type == "sprints_bulk_deleted":
                 return self._format_bulk_sprint_deletion(result["data"])
+            elif result_type == "query_response":
+                return self._format_query_response(result["data"])
         
         # Handle multiple operations with detailed feedback
         if successful:
@@ -2141,3 +2283,16 @@ class JSONExecutor:
                 lines.append(f"  • {error}")
         
         return "\n".join(lines)
+    
+    def _format_query_response(self, data: Dict) -> str:
+        """Format AI query response"""
+        analysis = data.get("analysis", "")
+        entity_type = data.get("entity_type", "")
+        entity_name = data.get("entity_name", "")
+        
+        if analysis:
+            # If we have AI analysis, return it directly
+            return analysis
+        else:
+            # Fallback if no AI analysis
+            return f"📊 Status information for {entity_type} '{entity_name}' is being processed..."
