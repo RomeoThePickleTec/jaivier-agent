@@ -442,7 +442,7 @@ Soy tu asistente para gestionar proyectos, tareas y sprints.
         help_text = """
 📚 **Guía de Jaivier Bot**
 
-**Comandos de voz naturales:**
+**Ejemplos de comandos en lenguaje natural (Puedes escribirlos como quieras, ¡Esa es la magia de JAI-VIER!):**
 
 🏗️ **Proyectos:**
 • "Crea un proyecto llamado [nombre]"
