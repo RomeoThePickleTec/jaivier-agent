@@ -313,14 +313,18 @@ Para proyectos complejos, te recomiendo:
                 
                 await update.message.reply_text(help_msg, parse_mode='Markdown')
                 return
-            # Check if it's a creation or deletion command first, before listing
+            # Check if it's a creation, deletion, or assignment command first, before listing
             create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
             delete_keywords = ["eliminar", "elminame", "delete", "borrar", "remove"]
+            assignment_keywords = ["asignar", "assign", "añadele", "añadir al proyecto", "add to project"]
+            removal_keywords = ["quita", "quitar", "remover", "sacar", "eliminar usuario", "remove user"]
             is_create_command = any(create_word in message for create_word in create_keywords)
             is_delete_command = any(delete_word in message for delete_word in delete_keywords)
+            is_assignment_command = any(assign_word in message for assign_word in assignment_keywords)
+            is_removal_command = any(removal_word in message for removal_word in removal_keywords)
             
-            # Quick routing for simple list commands (only if NOT creating or deleting)
-            if not is_create_command and not is_delete_command:
+            # Quick routing for simple list commands (only if NOT creating, deleting, assigning, or removing)
+            if not is_create_command and not is_delete_command and not is_assignment_command and not is_removal_command:
                 if any(word in message for word in ["mostrar proyecto", "list project", "ver proyecto", "proyectos"]):
                     await self.list_projects_command(update, context)
                     return
@@ -329,8 +333,8 @@ Para proyectos complejos, te recomiendo:
                     await self.list_sprints_command(update, context)
                     return
             
-            # Only trigger task list if it's explicitly asking to list/show, not create or delete
-            if not is_create_command and not is_delete_command:
+            # Only trigger task list if it's explicitly asking to list/show, not create, delete, assign, or remove
+            if not is_create_command and not is_delete_command and not is_assignment_command and not is_removal_command:
                 list_keywords = ["mostrar tarea", "list task", "ver tarea", "listar tarea"]
                 
                 if any(keyword in message for keyword in list_keywords):
@@ -340,7 +344,8 @@ Para proyectos complejos, te recomiendo:
                     await self.list_tasks_command(update, context)
                     return
             
-            if any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "equipo", "team", "mostrar equipo", "ver equipo"]):
+            # Only show users if it's not an assignment or removal command
+            if not is_assignment_command and not is_removal_command and any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "users", "equipo", "team", "mostrar equipo", "ver equipo"]):
                 await self.list_users_command(update, context)
                 return
             

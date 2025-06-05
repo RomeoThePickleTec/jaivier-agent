@@ -4,7 +4,7 @@
 import json
 import re
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import google.generativeai as genai
 from config.settings import GEMINI_API_KEY
 
@@ -51,15 +51,18 @@ class ImprovedAIAssistant:
         - UPDATE_PROJECT: Update project (requires id)
         - UPDATE_SPRINT: Update sprint (requires id)
         - UPDATE_TASK: Update task (requires id)
+        - UPDATE_USER: Update user (requires id/username, supports: email, full_name, role, work_mode, phone, password_hash)
         - DELETE_PROJECT: Delete project (requires id)
         - DELETE_PROJECTS_BY_NAME: Delete projects by name pattern
         - DELETE_SPRINT: Delete sprint (requires id)
         - DELETE_SPRINTS_BY_NAME: Delete sprints by name pattern
         - DELETE_TASK: Delete task (requires id)
+        - DELETE_USER: Delete user (requires id/username)
         - ASSIGN_USER_TO_PROJECT: Assign user to project
-        - REMOVE_USER_FROM_PROJECT: Remove user from project
+        - REMOVE_USER_FROM_PROJECT: Remove user from project (requires project_id/project_name and user_id/user_name)
         - LIST_PROJECT_MEMBERS: List project members
         - AUTO_ASSIGN_USERS: Auto-assign users to project
+        - QUERY_STATUS: Answer natural language questions about projects, sprints, tasks with AI analysis
         
         RESPONSE FORMAT:
         {
@@ -116,6 +119,12 @@ class ImprovedAIAssistant:
             ],
             "response_template": "✅ Created complete project with sprint and 3 tasks!"
         }
+        
+        IMPORTANT GUIDELINES:
+        - ALWAYS create individual CREATE_TASK operations for each task mentioned
+        - DO NOT include task lists in sprint descriptions - create separate tasks instead
+        - When creating complex projects, break down tasks into individual operations
+        - Example: If a sprint mentions "setup, authentication, database", create 3 separate CREATE_TASK operations
         """
     
     async def generate_operations(self, user_message: str, context: Optional[Dict] = None) -> Dict:
@@ -291,6 +300,95 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify task ID or title (e.g., 'delete task 5' or 'elimina la tarea llamada Setup')"
                 }
         
+        elif any(word in message_lower for word in ["eliminar usuario", "delete user", "borrar usuario"]):
+            # Extract user ID, username or name
+            user_id = self._extract_id(user_message, ["user", "usuario"])
+            username = self._extract_name_after_keyword(user_message, ["usuario", "user", "llamado", "named"])
+            
+            # Also try to extract from patterns like "eliminar usuario Juan"
+            if not username and not user_id:
+                # Look for pattern "eliminar usuario [name]"
+                pattern_match = re.search(r"(?:eliminar|delete|borrar)\s+usuario\s+(\w+)", message_lower)
+                if pattern_match:
+                    username = pattern_match.group(1)
+            
+            if user_id:
+                return {
+                    "operations": [
+                        {"type": "DELETE_USER", "data": {"id": user_id}}
+                    ],
+                    "response_template": f"🗑️ User {user_id} deleted!"
+                }
+            elif username:
+                return {
+                    "operations": [
+                        {"type": "DELETE_USER", "data": {"username": username}}
+                    ],
+                    "response_template": f"🗑️ User '{username}' deleted!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify user ID or username (e.g., 'delete user 5' or 'eliminar usuario Juan')"
+                }
+        
+        elif any(word in message_lower for word in ["actualizar usuario", "update user", "modificar usuario", "cambiar usuario", "editar usuario", "edit user"]):
+            # Extract user info
+            user_id = self._extract_id(user_message, ["user", "usuario"])
+            username = self._extract_name_after_keyword(user_message, ["usuario", "user"])
+            
+            # Extract what to update
+            update_data = {}
+            
+            # Extract fields to update
+            if any(phrase in message_lower for phrase in ["email a", "email to", "correo a"]):
+                new_email = self._extract_update_value(user_message, ["email a", "email to", "correo a"])
+                if new_email:
+                    update_data["email"] = new_email
+            
+            if any(phrase in message_lower for phrase in ["nombre a", "name to", "full_name a"]):
+                new_name = self._extract_update_value(user_message, ["nombre a", "name to", "full_name a"])
+                if new_name:
+                    update_data["full_name"] = new_name
+            
+            if any(phrase in message_lower for phrase in ["rol a", "role to", "como"]):
+                new_role = self._extract_update_value(user_message, ["rol a", "role to", "como"])
+                if new_role:
+                    update_data["role"] = new_role
+            
+            if any(phrase in message_lower for phrase in ["work_mode a", "modo a", "trabajo a"]):
+                new_work_mode = self._extract_update_value(user_message, ["work_mode a", "modo a", "trabajo a"])
+                if new_work_mode:
+                    update_data["work_mode"] = new_work_mode.upper()
+            
+            if any(phrase in message_lower for phrase in ["telefono a", "phone to", "tel a"]):
+                new_phone = self._extract_update_value(user_message, ["telefono a", "phone to", "tel a"])
+                if new_phone:
+                    update_data["phone"] = new_phone
+            
+            if any(phrase in message_lower for phrase in ["password a", "contraseña a"]):
+                new_password = self._extract_update_value(user_message, ["password a", "contraseña a"])
+                if new_password:
+                    update_data["password_hash"] = new_password
+            
+            if user_id:
+                update_data["id"] = user_id
+            elif username:
+                update_data["username"] = username
+            
+            if update_data and (user_id or username):
+                return {
+                    "operations": [
+                        {"type": "UPDATE_USER", "data": update_data}
+                    ],
+                    "response_template": f"✏️ User updated successfully!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify user and what to update (e.g., 'update user John email to new@email.com' or 'actualizar usuario 5 rol a admin')"
+                }
+        
         elif any(word in message_lower for word in ["actualizar proyecto", "update project", "modificar proyecto", "cambiar proyecto"]):
             # Extract project ID or name
             project_id = self._extract_id(user_message, ["project", "proyecto"])
@@ -335,47 +433,72 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify project and what to update (e.g., 'update project 5 name to NewName' or 'actualizar proyecto llamado OldName descripción a New description')"
                 }
         
-        elif any(phrase in message_lower for phrase in ["asignar usuario", "assign user", "agregar usuario al proyecto", "add user to project"]):
-            # Extract user and project info
-            user_id = self._extract_id(user_message, ["user", "usuario"])
+        elif any(phrase in message_lower for phrase in ["asignar usuario", "assign user", "agregar usuario al proyecto", "add user to project", "añadele al proyecto", "añadir al proyecto"]):
+            # Extract project info
             project_id = self._extract_id(user_message, ["project", "proyecto"])
-            user_name = self._extract_name_after_keyword(user_message, ["usuario", "user"])
             project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
             
-            data = {}
-            if user_id:
-                data["user_id"] = user_id
-            elif user_name:
-                data["user_name"] = user_name
+            # Extract multiple users - look for patterns like "aram, fer caves, y aaron hernandez"
+            users_to_assign = self._extract_multiple_users(user_message)
             
+            if not users_to_assign:
+                # Fallback to single user extraction
+                user_id = self._extract_id(user_message, ["user", "usuario"])
+                user_name = self._extract_name_after_keyword(user_message, ["usuario", "user"])
+                if user_id or user_name:
+                    users_to_assign = [{"user_id": user_id, "user_name": user_name}]
+            
+            project_data = {}
             if project_id:
-                data["project_id"] = project_id
+                project_data["project_id"] = project_id
             elif project_name:
-                data["project_name"] = project_name
+                project_data["project_name"] = project_name
             
-            if data.get("user_id") or data.get("user_name"):
-                if data.get("project_id") or data.get("project_name"):
-                    return {
-                        "operations": [
-                            {"type": "ASSIGN_USER_TO_PROJECT", "data": data}
-                        ],
-                        "response_template": "👥 User assigned to project!"
-                    }
+            if users_to_assign and (project_data.get("project_id") or project_data.get("project_name")):
+                operations = []
+                for user_info in users_to_assign:
+                    operation_data = {**project_data, **user_info}
+                    operations.append({"type": "ASSIGN_USER_TO_PROJECT", "data": operation_data})
+                
+                return {
+                    "operations": operations,
+                    "response_template": f"👥 Assigning {len(users_to_assign)} users to project!"
+                }
             
             return {
                 "operations": [],
-                "response_template": "❌ Please specify both user and project (e.g., 'assign user John to project WebApp')"
+                "response_template": "❌ Please specify both users and project (e.g., 'assign users John, Mary to project WebApp')"
             }
         
-        elif any(phrase in message_lower for phrase in ["asignar automaticamente", "auto assign", "asignacion automatica", "auto-assign"]):
+        elif any(phrase in message_lower for phrase in ["asignar automaticamente", "auto assign", "asignacion automatica", "auto-assign", "usuario al azar", "user randomly", "al azar"]):
             project_id = self._extract_id(user_message, ["project", "proyecto"])
             project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
             
+            # Special pattern for "añadele a [project] a un usuario"
+            if not project_name:
+                pattern_match = re.search(r"añadele?\s+a\s+(\w+)\s+a\s+", message_lower)
+                if pattern_match:
+                    project_name = pattern_match.group(1)
+            
             # Extract count
             count = 2  # default
-            count_match = re.search(r"(\d+)\s*usuario", message_lower)
-            if count_match:
-                count = int(count_match.group(1))
+            # Look for patterns like "1 usuario", "2 users", "1 solo", "un usuario", etc.
+            count_patterns = [
+                r"(\d+)\s*usuario",
+                r"(\d+)\s*user",
+                r"(\d+)\s*solo",
+                r"un\s+usuario",  # "un usuario" = 1 user
+                r"una\s+persona",  # "una persona" = 1 person
+            ]
+            
+            for pattern in count_patterns:
+                count_match = re.search(pattern, message_lower)
+                if count_match:
+                    if pattern in [r"un\s+usuario", r"una\s+persona"]:
+                        count = 1  # "un usuario" means 1
+                    else:
+                        count = int(count_match.group(1))
+                    break
             
             data = {"count": count}
             if project_id:
@@ -395,6 +518,56 @@ class ImprovedAIAssistant:
                     "operations": [],
                     "response_template": "❌ Please specify project for auto-assignment (e.g., 'auto assign 3 users to project WebApp')"
                 }
+        
+        elif any(phrase in message_lower for phrase in ["remover usuario", "remove user", "eliminar usuario del proyecto", "quitar usuario", "sacar usuario", "remove from project"]):
+            # Extract project info
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
+            
+            # Special pattern for "remover/quitar a [user] del proyecto [project]"
+            if not project_name:
+                # Look for "del proyecto [name]" pattern
+                pattern_match = re.search(r"del proyecto\s+(\w+)", message_lower)
+                if pattern_match:
+                    project_name = pattern_match.group(1)
+                
+                # Also look for "proyecto [name]" pattern
+                if not project_name:
+                    pattern_match = re.search(r"proyecto\s+(\w+)", message_lower)
+                    if pattern_match:
+                        project_name = pattern_match.group(1)
+            
+            # Extract multiple users - look for patterns like "remover a aram, fer caves del proyecto"
+            users_to_remove = self._extract_multiple_users(user_message)
+            
+            if not users_to_remove:
+                # Fallback to single user extraction
+                user_id = self._extract_id(user_message, ["user", "usuario"])
+                user_name = self._extract_name_after_keyword(user_message, ["usuario", "user", "a "])
+                if user_id or user_name:
+                    users_to_remove = [{"user_id": user_id, "user_name": user_name}]
+            
+            project_data = {}
+            if project_id:
+                project_data["project_id"] = project_id
+            elif project_name:
+                project_data["project_name"] = project_name
+            
+            if users_to_remove and (project_data.get("project_id") or project_data.get("project_name")):
+                operations = []
+                for user_info in users_to_remove:
+                    operation_data = {**project_data, **user_info}
+                    operations.append({"type": "REMOVE_USER_FROM_PROJECT", "data": operation_data})
+                
+                return {
+                    "operations": operations,
+                    "response_template": f"👥 Removing {len(users_to_remove)} users from project!"
+                }
+            
+            return {
+                "operations": [],
+                "response_template": "❌ Please specify both users and project to remove (e.g., 'remove user John from project WebApp')"
+            }
         
         elif any(phrase in message_lower for phrase in ["mostrar miembros", "members of project", "ver equipo del proyecto", "project members"]):
             project_id = self._extract_id(user_message, ["project", "proyecto"])
@@ -489,17 +662,102 @@ class ImprovedAIAssistant:
             }
         
         # COMPLEX OPERATIONS
-        elif "proyecto completo" in message_lower:
+        elif "proyecto completo" in message_lower or "proyecto con tareas" in message_lower:
             name = self._extract_name(user_message, ["proyecto"])
             return {
                 "operations": [
                     {"type": "CREATE_PROJECT", "data": {"name": name}, "reference": "proj1"},
-                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 1", "project_id": "$proj1.id"}, "reference": "sprint1"},
-                    {"type": "CREATE_TASK", "data": {"title": "Setup", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
-                    {"type": "CREATE_TASK", "data": {"title": "Development", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
-                    {"type": "CREATE_TASK", "data": {"title": "Testing", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}}
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 1 - Fundaciones", "project_id": "$proj1.id"}, "reference": "sprint1"},
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 2 - Desarrollo", "project_id": "$proj1.id"}, "reference": "sprint2"},
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 3 - Deploy", "project_id": "$proj1.id"}, "reference": "sprint3"},
+                    {"type": "CREATE_TASK", "data": {"title": "Setup del proyecto", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Configuración inicial", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Autenticación", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Base de datos", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Funcionalidad principal", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "API endpoints", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Frontend components", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Testing", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Deploy setup", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Documentation", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Optimizations", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}}
                 ],
-                "response_template": f"✅ Complete project '{name}' created with sprint and 3 tasks!"
+                "response_template": f"✅ Complete project '{name}' created with 3 sprints and 11 tasks!"
+            }
+        
+        # QUERY OPERATIONS - Natural language status questions
+        elif any(phrase in message_lower for phrase in [
+            "como va", "como está", "cómo va", "cómo está", "que tal va", "qué tal va",
+            "how is", "status of", "estado de", "estado del", "que necesita", "qué necesita",
+            "progress", "progreso", "resumen", "summary", "oye y el", "hey and the"
+        ]):
+            query = original_message if len(original_message) < 500 else message_lower
+            
+            # Determine entity type and name from query
+            entity_type = "general"
+            entity_name = ""
+            entity_id = None
+            
+            if any(word in message_lower for word in ["proyecto", "project"]):
+                entity_type = "project"
+                # Extract project name or ID
+                for keyword in ["proyecto", "project"]:
+                    if keyword in message_lower:
+                        parts = message_lower.split(keyword)
+                        if len(parts) > 1:
+                            name_part = parts[-1].strip()
+                            # Clean up common words
+                            for stop in [" como va", " cómo va", " how is", " status"]:
+                                if stop in name_part:
+                                    name_part = name_part.split(stop)[0].strip()
+                            entity_name = name_part.title() if name_part else ""
+                            break
+            
+            elif any(word in message_lower for word in ["sprint"]):
+                entity_type = "sprint"
+                # Extract sprint name
+                if "sprint" in message_lower:
+                    parts = message_lower.split("sprint")
+                    if len(parts) > 1:
+                        name_part = parts[-1].strip()
+                        for stop in [" como va", " cómo va", " how is", " status"]:
+                            if stop in name_part:
+                                name_part = name_part.split(stop)[0].strip()
+                        entity_name = name_part.title() if name_part else ""
+            
+            elif any(word in message_lower for word in ["tarea", "task"]):
+                entity_type = "task"
+                # Extract task name
+                for keyword in ["tarea", "task"]:
+                    if keyword in message_lower:
+                        parts = message_lower.split(keyword)
+                        if len(parts) > 1:
+                            name_part = parts[-1].strip()
+                            for stop in [" como va", " cómo va", " how is", " status", " que necesita", " qué necesita"]:
+                                if stop in name_part:
+                                    name_part = name_part.split(stop)[0].strip()
+                            entity_name = name_part.title() if name_part else ""
+                            break
+            
+            # Try to extract ID if present
+            import re
+            id_match = re.search(r'\b(\d+)\b', message_lower)
+            if id_match:
+                entity_id = int(id_match.group(1))
+            
+            return {
+                "operations": [
+                    {
+                        "type": "QUERY_STATUS", 
+                        "data": {
+                            "query": query,
+                            "entity_type": entity_type,
+                            "entity_name": entity_name,
+                            "entity_id": entity_id
+                        }
+                    }
+                ],
+                "response_template": f"🤖 Analyzing {entity_type} status..."
             }
         
         # DEFAULT
@@ -637,3 +895,51 @@ class ImprovedAIAssistant:
                     return value_part.title() if value_part else None
         
         return None
+    
+    def _extract_multiple_users(self, message: str) -> List[Dict]:
+        """Extract multiple users from patterns like 'aram, fer caves, y aaron hernandez'"""
+        message_lower = message.lower()
+        users = []
+        
+        logger.info(f"Extracting users from message: {message}")
+        
+        # Look for patterns after "usuarios" or "al proyecto"  
+        patterns = [
+            r"añadele\s+al?\s+proyecto\s+\w+\s+a\s+los?\s+usuarios?\s+(.+)",  # Assignment pattern
+            r"al?\s+proyecto\s+\w+\s+a\s+los?\s+usuarios?\s+(.+)",
+            r"usuarios?\s+(.+?)\s+al?\s+proyecto",
+            r"a\s+los?\s+usuarios?\s+(.+?)\s+al?\s+proyecto", 
+            r"del proyecto\s+\w+\s+(.+)",  # Removal pattern: "del proyecto fittrack fercaves AlfredoFonseca..."
+            r"proyecto\s+\w+\s+(.+)",      # Removal pattern: "proyecto fittrack fercaves AlfredoFonseca..."
+            r"estos\s+usuarios?\s+del\s+proyecto\s+\w+\s+(.+)",  # "estos usuarios del proyecto fittrack fercaves..."
+            r"usuarios?\s+(.+)"  # Simple fallback
+        ]
+        
+        user_list_text = None
+        for i, pattern in enumerate(patterns):
+            match = re.search(pattern, message_lower)
+            if match:
+                user_list_text = match.group(1).strip()
+                logger.info(f"Pattern {i} matched: {pattern} -> {user_list_text}")
+                break
+        
+        if user_list_text:
+            # Split by common separators
+            separators = [",", " y ", " and ", ";"]
+            user_names = [user_list_text]
+            
+            for sep in separators:
+                new_names = []
+                for name in user_names:
+                    new_names.extend([n.strip() for n in name.split(sep) if n.strip()])
+                user_names = new_names
+            
+            # Clean up and create user objects
+            for name in user_names:
+                name = name.strip()
+                if name and len(name) > 1:  # Skip empty or single char names
+                    users.append({"user_name": name.title()})
+                    logger.info(f"Added user: {name.title()}")
+        
+        logger.info(f"Extracted {len(users)} users: {users}")
+        return users
