@@ -189,7 +189,7 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify project ID (e.g., 'delete project 5')"
                 }
         
-        elif any(phrase in message_lower for phrase in ["eliminar todos los proyectos", "delete all projects", "borrar todos los proyectos", "eliminame todos"]):
+        elif any(phrase in message_lower for phrase in ["eliminar todos los proyectos", "delete all projects", "borrar todos los proyectos", "eliminame todos", "elminame todos"]):
             # Extract name pattern from the message
             name_pattern = self._extract_name_pattern(user_message)
             if name_pattern:

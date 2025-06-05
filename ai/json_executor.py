@@ -389,6 +389,12 @@ class JSONExecutor:
             projects = [r for r in successful if r.get("type") == "project"]
             sprints = [r for r in successful if r.get("type") == "sprint"]
             tasks = [r for r in successful if r.get("type") == "task"]
+            bulk_deletions = [r for r in successful if r.get("type") == "projects_bulk_deleted"]
+            
+            # Check if this is primarily a deletion operation
+            if bulk_deletions:
+                # Handle bulk deletion separately
+                return self._format_bulk_deletion(bulk_deletions[0]["data"])
             
             response_lines = ["🎉 **Creation Summary:**\n"]
             
@@ -496,10 +502,10 @@ class JSONExecutor:
         failed = data.get("failed", [])
         pattern = data.get("pattern", "")
         
-        lines = [f"🗑️ **Bulk Deletion Results for '{pattern}':**\n"]
+        lines = [f"🗑️ Bulk Deletion Results for '{pattern}':\n"]
         
         if deleted:
-            lines.append(f"✅ **Successfully Deleted ({len(deleted)}):**")
+            lines.append(f"✅ Successfully Deleted ({len(deleted)}):")
             for project in deleted:
                 name = project.get("name", "Unknown")
                 proj_id = project.get("id", "N/A")
@@ -507,7 +513,7 @@ class JSONExecutor:
             lines.append("")
         
         if failed:
-            lines.append(f"❌ **Failed to Delete ({len(failed)}):**")
+            lines.append(f"❌ Failed to Delete ({len(failed)}):")
             for project in failed:
                 name = project.get("name", "Unknown")
                 proj_id = project.get("id", "N/A")

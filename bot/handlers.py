@@ -287,12 +287,14 @@ Para proyectos complejos, te recomiendo:
                 
                 await update.message.reply_text(help_msg, parse_mode='Markdown')
                 return
-            # Check if it's a creation command first, before listing
+            # Check if it's a creation or deletion command first, before listing
             create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
+            delete_keywords = ["eliminar", "elminame", "delete", "borrar", "remove"]
             is_create_command = any(create_word in message for create_word in create_keywords)
+            is_delete_command = any(delete_word in message for delete_word in delete_keywords)
             
-            # Quick routing for simple list commands (only if NOT creating)
-            if not is_create_command:
+            # Quick routing for simple list commands (only if NOT creating or deleting)
+            if not is_create_command and not is_delete_command:
                 if any(word in message for word in ["mostrar proyecto", "list project", "ver proyecto", "proyectos"]):
                     await self.list_projects_command(update, context)
                     return
@@ -301,8 +303,8 @@ Para proyectos complejos, te recomiendo:
                     await self.list_sprints_command(update, context)
                     return
             
-            # Only trigger task list if it's explicitly asking to list/show, not create
-            if not is_create_command:
+            # Only trigger task list if it's explicitly asking to list/show, not create or delete
+            if not is_create_command and not is_delete_command:
                 list_keywords = ["mostrar tarea", "list task", "ver tarea", "listar tarea"]
                 
                 if any(keyword in message for keyword in list_keywords):
