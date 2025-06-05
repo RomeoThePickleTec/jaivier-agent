@@ -54,6 +54,7 @@ class ImprovedAIAssistant:
         - DELETE_PROJECT: Delete project (requires id)
         - DELETE_PROJECTS_BY_NAME: Delete projects by name pattern
         - DELETE_SPRINT: Delete sprint (requires id)
+        - DELETE_SPRINTS_BY_NAME: Delete sprints by name pattern
         - DELETE_TASK: Delete task (requires id)
         
         RESPONSE FORMAT:
@@ -205,6 +206,87 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify what projects to delete (e.g., 'delete all projects with React')"
                 }
         
+        elif any(word in message_lower for word in ["eliminar sprint", "delete sprint", "borrar sprint"]):
+            # Extract sprint ID or name
+            sprint_id = self._extract_id(user_message, ["sprint"])
+            sprint_name = self._extract_name_after_keyword(user_message, ["llamado", "named"])
+            
+            if sprint_id:
+                return {
+                    "operations": [
+                        {"type": "DELETE_SPRINT", "data": {"id": sprint_id}}
+                    ],
+                    "response_template": f"🗑️ Sprint {sprint_id} deleted!"
+                }
+            elif sprint_name:
+                return {
+                    "operations": [
+                        {"type": "DELETE_SPRINT", "data": {"name": sprint_name}}
+                    ],
+                    "response_template": f"🗑️ Sprint '{sprint_name}' deleted!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify sprint ID or name (e.g., 'delete sprint 5' or 'elimina el sprint llamado TestSprint')"
+                }
+        
+        elif any(phrase in message_lower for phrase in ["eliminar todos los sprints", "delete all sprints", "borrar todos los sprints", "eliminame todos los sprints", "elminame todos los sprints"]):
+            # Extract name pattern from the message
+            name_pattern = self._extract_name_pattern_sprint(user_message)
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            
+            if name_pattern:
+                data = {"name_pattern": name_pattern}
+                if project_id:
+                    data["project_id"] = project_id
+                return {
+                    "operations": [
+                        {"type": "DELETE_SPRINTS_BY_NAME", "data": data}
+                    ],
+                    "response_template": f"🗑️ Deleting all sprints matching '{name_pattern}'"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify what sprints to delete (e.g., 'delete all sprints with Test')"
+                }
+        
+        elif any(word in message_lower for word in ["eliminar tarea", "delete task", "borrar tarea"]):
+            # Extract task ID or title
+            task_id = self._extract_id(user_message, ["task", "tarea"])
+            task_title = self._extract_name_after_keyword(user_message, ["llamada", "llamado", "named", "titled"]) or self._extract_name(user_message, ["tarea", "task"])
+            
+            # Check if user wants to delete ALL tasks with the same name
+            delete_all = any(phrase in message_lower for phrase in ["todas las tareas", "all tasks", "elimina todas"])
+            
+            if task_id:
+                return {
+                    "operations": [
+                        {"type": "DELETE_TASK", "data": {"id": task_id}}
+                    ],
+                    "response_template": f"🗑️ Task {task_id} deleted!"
+                }
+            elif task_title and delete_all:
+                return {
+                    "operations": [
+                        {"type": "DELETE_TASKS_BY_NAME", "data": {"name_pattern": task_title}}
+                    ],
+                    "response_template": f"🗑️ Deleting all tasks with name '{task_title}'"
+                }
+            elif task_title:
+                return {
+                    "operations": [
+                        {"type": "DELETE_TASK", "data": {"title": task_title}}
+                    ],
+                    "response_template": f"🗑️ Task '{task_title}' deleted!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify task ID or title (e.g., 'delete task 5' or 'elimina la tarea llamada Setup')"
+                }
+        
         # CREATE OPERATIONS
         elif "crear proyecto" in message_lower or "new project" in message_lower:
             name = self._extract_name(user_message, ["proyecto", "project"])
@@ -340,6 +422,55 @@ class ImprovedAIAssistant:
         # Fallback: look for text after "proyectos" 
         if "proyectos" in message_lower:
             parts = message_lower.split("proyectos")
+            if len(parts) > 1:
+                remaining = parts[-1].strip()
+                # Remove common stopwords
+                for stop in ["que digan", "que contengan", "llamados", "con"]:
+                    if remaining.startswith(stop):
+                        remaining = remaining[len(stop):].strip()
+                return remaining if remaining else None
+        
+        return None
+    
+    def _extract_name_after_keyword(self, message: str, keywords: list) -> Optional[str]:
+        """Extract name after specific keywords like 'llamado' or 'named'"""
+        message_lower = message.lower()
+        
+        for keyword in keywords:
+            if keyword in message_lower:
+                parts = message_lower.split(keyword)
+                if len(parts) > 1:
+                    name_part = parts[-1].strip()
+                    # Remove common stopwords and clean up
+                    for stop in [" el", " la", " un", " una", " de", " para"]:
+                        if name_part.startswith(stop):
+                            name_part = name_part[len(stop):].strip()
+                    return name_part.title() if name_part else None
+        
+        return None
+    
+    def _extract_name_pattern_sprint(self, message: str) -> Optional[str]:
+        """Extract name pattern for bulk sprint operations"""
+        message_lower = message.lower()
+        
+        # Look for patterns like "que digan X", "with X", "containing X"
+        patterns = [
+            r"que digan\s+([^\n]+)",
+            r"que contengan\s+([^\n]+)", 
+            r"with\s+([^\n]+)",
+            r"containing\s+([^\n]+)",
+            r"llamados\s+([^\n]+)",
+            r"named\s+([^\n]+)"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                return match.group(1).strip()
+        
+        # Fallback: look for text after "sprints" 
+        if "sprints" in message_lower:
+            parts = message_lower.split("sprints")
             if len(parts) > 1:
                 remaining = parts[-1].strip()
                 # Remove common stopwords

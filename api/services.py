@@ -119,7 +119,33 @@ class SprintService:
     
     async def delete(self, sprint_id: int) -> Dict:
         """Eliminar un sprint"""
-        return await self.client._make_request("DELETE", f"{self.base_path}/{sprint_id}")
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"Deleting sprint {sprint_id}")
+            result = await self.client._make_request("DELETE", f"{self.base_path}/{sprint_id}")
+            logger.info(f"Delete API response: {result} (type: {type(result)})")
+            
+            # Handle different response types
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    logger.info(f"Sprint {sprint_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+                elif result.get('error'):
+                    logger.error(f"Failed to delete sprint {sprint_id}: {result.get('error')}")
+                    return result
+                else:
+                    logger.info(f"Sprint {sprint_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+            else:
+                # Handle unexpected response types
+                logger.warning(f"Unexpected response type {type(result)}: {result}")
+                return {"success": True, "deleted": True}
+                
+        except Exception as e:
+            logger.error(f"Error deleting sprint {sprint_id}: {e}")
+            return {"error": str(e), "success": False}
 
 class TaskService:
     """Servicio para manejo de tareas"""
@@ -159,7 +185,33 @@ class TaskService:
     
     async def delete(self, task_id: int) -> Dict:
         """Eliminar una tarea"""
-        return await self.client._make_request("DELETE", f"{self.base_path}/{task_id}")
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"Deleting task {task_id}")
+            result = await self.client._make_request("DELETE", f"{self.base_path}/{task_id}")
+            logger.info(f"Delete API response: {result} (type: {type(result)})")
+            
+            # Handle different response types
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    logger.info(f"Task {task_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+                elif result.get('error'):
+                    logger.error(f"Failed to delete task {task_id}: {result.get('error')}")
+                    return result
+                else:
+                    logger.info(f"Task {task_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+            else:
+                # Handle unexpected response types
+                logger.warning(f"Unexpected response type {type(result)}: {result}")
+                return {"success": True, "deleted": True}
+                
+        except Exception as e:
+            logger.error(f"Error deleting task {task_id}: {e}")
+            return {"error": str(e), "success": False}
     
     async def assign_to_user(self, task_id: int, user_id: int) -> Dict:
         """Asignar tarea a un usuario"""

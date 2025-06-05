@@ -68,6 +68,8 @@ class JSONExecutor:
             result = await self._delete_projects_by_name(data)
         elif op_type == "DELETE_SPRINT":
             result = await self._delete_sprint(data)
+        elif op_type == "DELETE_SPRINTS_BY_NAME":
+            result = await self._delete_sprints_by_name(data)
         elif op_type == "DELETE_TASK":
             result = await self._delete_task(data)
         else:
@@ -327,10 +329,180 @@ class JSONExecutor:
             return {"success": False, "error": str(e)}
     
     async def _delete_sprint(self, data: Dict) -> Dict:
-        return {"success": False, "error": "Delete not implemented yet"}
+        sprint_id = data.get("id") or data.get("sprint_id")
+        sprint_name = data.get("name")
+        
+        # If no ID but we have a name, search for the sprint
+        if not sprint_id and sprint_name:
+            try:
+                sprints = await self.api_manager.sprints.get_all()
+                for sprint in sprints:
+                    if sprint.get("name", "").lower() == sprint_name.lower():
+                        sprint_id = sprint.get("id")
+                        break
+                
+                if not sprint_id:
+                    return {"success": False, "error": f"Sprint '{sprint_name}' not found"}
+            except Exception as e:
+                return {"success": False, "error": f"Error searching for sprint: {e}"}
+        
+        if not sprint_id:
+            return {"success": False, "error": "sprint_id or name required for deletion"}
+        
+        try:
+            sprint_id = int(sprint_id)
+            logger.info(f"[EXECUTOR] Deleting sprint {sprint_id}")
+            
+            # Get sprint details before deletion for response
+            sprint = await self.api_manager.sprints.get_by_id(sprint_id)
+            sprint_name = sprint.get("name", f"Sprint {sprint_id}") if sprint else f"Sprint {sprint_id}"
+            
+            result = await self.api_manager.sprints.delete(sprint_id)
+            
+            if result.get("success"):
+                return {
+                    "success": True, 
+                    "data": {"id": sprint_id, "name": sprint_name, "deleted": True}, 
+                    "type": "sprint_deleted"
+                }
+            else:
+                return {"success": False, "error": result.get("error", "Deletion failed")}
+                
+        except ValueError:
+            return {"success": False, "error": "Invalid sprint ID"}
+        except Exception as e:
+            logger.error(f"Error in _delete_sprint: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _delete_sprints_by_name(self, data: Dict) -> Dict:
+        name_pattern = data.get("name_pattern") or data.get("name")
+        project_id = data.get("project_id")
+        
+        if not name_pattern:
+            return {"success": False, "error": "name_pattern required for bulk sprint deletion"}
+        
+        try:
+            # Get all sprints (optionally filtered by project)
+            sprints = await self.api_manager.sprints.get_all(project_id)
+            
+            # Find sprints matching the pattern (case-insensitive)
+            matching_sprints = []
+            for sprint in sprints:
+                sprint_name = sprint.get("name", "")
+                if name_pattern.lower() in sprint_name.lower():
+                    matching_sprints.append(sprint)
+            
+            if not matching_sprints:
+                return {
+                    "success": False, 
+                    "error": f"No sprints found matching '{name_pattern}'"
+                }
+            
+            # Delete each matching sprint
+            deleted_sprints = []
+            failed_deletions = []
+            
+            for sprint in matching_sprints:
+                sprint_id = sprint.get("id")
+                sprint_name = sprint.get("name", f"Sprint {sprint_id}")
+                project_id_info = sprint.get("project_id", "N/A")
+                
+                try:
+                    logger.info(f"[EXECUTOR] Bulk deleting sprint {sprint_id}: {sprint_name}")
+                    result = await self.api_manager.sprints.delete(sprint_id)
+                    
+                    if result.get("success"):
+                        deleted_sprints.append({
+                            "id": sprint_id, 
+                            "name": sprint_name,
+                            "project_id": project_id_info
+                        })
+                    else:
+                        failed_deletions.append({
+                            "id": sprint_id, 
+                            "name": sprint_name,
+                            "project_id": project_id_info,
+                            "error": result.get("error", "Unknown error")
+                        })
+                except Exception as e:
+                    failed_deletions.append({
+                        "id": sprint_id, 
+                        "name": sprint_name,
+                        "project_id": project_id_info,
+                        "error": str(e)
+                    })
+            
+            return {
+                "success": len(deleted_sprints) > 0,
+                "data": {
+                    "deleted": deleted_sprints,
+                    "failed": failed_deletions,
+                    "pattern": name_pattern
+                },
+                "type": "sprints_bulk_deleted"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in _delete_sprints_by_name: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _delete_task(self, data: Dict) -> Dict:
-        return {"success": False, "error": "Delete not implemented yet"}
+        task_id = data.get("id") or data.get("task_id")
+        task_title = data.get("title") or data.get("name")
+        
+        # If no ID but we have a title, search for the task
+        if not task_id and task_title:
+            try:
+                tasks = await self.api_manager.tasks.get_all()
+                for task in tasks:
+                    if task.get("title", "").lower() == task_title.lower():
+                        task_id = task.get("id")
+                        break
+                
+                if not task_id:
+                    return {"success": False, "error": f"Task '{task_title}' not found"}
+            except Exception as e:
+                return {"success": False, "error": f"Error searching for task: {e}"}
+        
+        if not task_id:
+            return {"success": False, "error": "task_id or title required for deletion"}
+        
+        try:
+            task_id = int(task_id)
+            logger.info(f"[EXECUTOR] Deleting task {task_id}")
+            
+            # Get task details before deletion for response
+            task = await self.api_manager.tasks.get_by_id(task_id)
+            task_title = task.get("title", f"Task {task_id}") if task else f"Task {task_id}"
+            
+            result = await self.api_manager.tasks.delete(task_id)
+            
+            if result.get("success"):
+                # Verify the task was actually deleted by checking if it still exists
+                await asyncio.sleep(0.5)  # Wait a moment for the API to process
+                verification_task = await self.api_manager.tasks.get_by_id(task_id)
+                
+                if verification_task:
+                    logger.warning(f"Task {task_id} still exists after deletion - API may have failed silently")
+                    return {
+                        "success": False, 
+                        "error": f"Task appears to still exist after deletion (API returned success but task {task_id} is still present)"
+                    }
+                else:
+                    logger.info(f"Task {task_id} successfully verified as deleted")
+                    return {
+                        "success": True, 
+                        "data": {"id": task_id, "title": task_title, "deleted": True}, 
+                        "type": "task_deleted"
+                    }
+            else:
+                return {"success": False, "error": result.get("error", "Deletion failed")}
+                
+        except ValueError:
+            return {"success": False, "error": "Invalid task ID"}
+        except Exception as e:
+            logger.error(f"Error in _delete_task: {e}")
+            return {"success": False, "error": str(e)}
     
     # UTILITY METHODS
     def _format_date(self, date_str: str) -> str:
@@ -380,8 +552,18 @@ class JSONExecutor:
                 data = result.get("data", {})
                 name = data.get("name", "Project")
                 return f"🗑️ **{name}** deleted successfully!"
+            elif result_type == "sprint_deleted":
+                data = result.get("data", {})
+                name = data.get("name", "Sprint")
+                return f"🗑️ **{name}** deleted successfully!"
+            elif result_type == "task_deleted":
+                data = result.get("data", {})
+                title = data.get("title", "Task")
+                return f"🗑️ **{title}** deleted successfully!"
             elif result_type == "projects_bulk_deleted":
                 return self._format_bulk_deletion(result["data"])
+            elif result_type == "sprints_bulk_deleted":
+                return self._format_bulk_sprint_deletion(result["data"])
         
         # Handle multiple operations with detailed feedback
         if successful:
@@ -390,11 +572,15 @@ class JSONExecutor:
             sprints = [r for r in successful if r.get("type") == "sprint"]
             tasks = [r for r in successful if r.get("type") == "task"]
             bulk_deletions = [r for r in successful if r.get("type") == "projects_bulk_deleted"]
+            bulk_sprint_deletions = [r for r in successful if r.get("type") == "sprints_bulk_deleted"]
             
             # Check if this is primarily a deletion operation
             if bulk_deletions:
-                # Handle bulk deletion separately
+                # Handle bulk project deletion separately
                 return self._format_bulk_deletion(bulk_deletions[0]["data"])
+            elif bulk_sprint_deletions:
+                # Handle bulk sprint deletion separately
+                return self._format_bulk_sprint_deletion(bulk_sprint_deletions[0]["data"])
             
             response_lines = ["🎉 **Creation Summary:**\n"]
             
@@ -523,5 +709,36 @@ class JSONExecutor:
         
         if not deleted and not failed:
             lines.append("❌ No projects found matching the pattern")
+        
+        return "\n".join(lines)
+    
+    def _format_bulk_sprint_deletion(self, data: Dict) -> str:
+        deleted = data.get("deleted", [])
+        failed = data.get("failed", [])
+        pattern = data.get("pattern", "")
+        
+        lines = [f"🗑️ Bulk Sprint Deletion Results for '{pattern}':\n"]
+        
+        if deleted:
+            lines.append(f"✅ Successfully Deleted ({len(deleted)}):")
+            for sprint in deleted:
+                name = sprint.get("name", "Unknown")
+                sprint_id = sprint.get("id", "N/A")
+                project_id = sprint.get("project_id", "N/A")
+                lines.append(f"  • {name} (ID: {sprint_id}, Project: {project_id})")
+            lines.append("")
+        
+        if failed:
+            lines.append(f"❌ Failed to Delete ({len(failed)}):")
+            for sprint in failed:
+                name = sprint.get("name", "Unknown")
+                sprint_id = sprint.get("id", "N/A")
+                project_id = sprint.get("project_id", "N/A")
+                error = sprint.get("error", "Unknown error")
+                lines.append(f"  • {name} (ID: {sprint_id}, Project: {project_id}) - {error}")
+            lines.append("")
+        
+        if not deleted and not failed:
+            lines.append("❌ No sprints found matching the pattern")
         
         return "\n".join(lines)
