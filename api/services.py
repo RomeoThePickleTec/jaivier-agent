@@ -1,0 +1,177 @@
+# api/services.py
+"""Servicios específicos para cada entidad de la API"""
+
+from typing import List, Dict, Optional
+from .client import JaivierAPIClient
+
+class UserService:
+    """Servicio para manejo de usuarios"""
+    
+    def __init__(self, client: JaivierAPIClient):
+        self.client = client
+        self.base_path = "/userlist"
+    
+    async def get_all(self) -> List[Dict]:
+        """Obtener todos los usuarios"""
+        result = await self.client._make_request("GET", self.base_path)
+        return result if isinstance(result, list) else []
+    
+    async def get_by_id(self, user_id: int) -> Optional[Dict]:
+        """Obtener usuario por ID"""
+        users = await self.get_all()
+        return next((user for user in users if user.get('id') == user_id), None)
+    
+    async def create(self, user_data: Dict) -> Dict:
+        """Crear un nuevo usuario"""
+        return await self.client._make_request("POST", self.base_path, user_data)
+    
+    async def update(self, user_id: int, user_data: Dict) -> Dict:
+        """Actualizar un usuario"""
+        return await self.client._make_request("PUT", f"{self.base_path}/{user_id}", user_data)
+    
+    async def delete(self, user_id: int) -> Dict:
+        """Eliminar un usuario"""
+        return await self.client._make_request("DELETE", f"{self.base_path}/{user_id}")
+
+class ProjectService:
+    """Servicio para manejo de proyectos"""
+    
+    def __init__(self, client: JaivierAPIClient):
+        self.client = client
+        self.base_path = "/projectlist"
+    
+    async def get_all(self) -> List[Dict]:
+        """Obtener todos los proyectos"""
+        result = await self.client._make_request("GET", self.base_path)
+        return result if isinstance(result, list) else []
+    
+    async def get_by_id(self, project_id: int) -> Optional[Dict]:
+        """Obtener proyecto por ID"""
+        projects = await self.get_all()
+        return next((project for project in projects if project.get('id') == project_id), None)
+    
+    async def create(self, project_data: Dict) -> Dict:
+        """Crear un nuevo proyecto"""
+        return await self.client._make_request("POST", self.base_path, project_data)
+    
+    async def update(self, project_id: int, project_data: Dict) -> Dict:
+        """Actualizar un proyecto"""
+        return await self.client._make_request("PUT", f"{self.base_path}/{project_id}", project_data)
+    
+    async def delete(self, project_id: int) -> Dict:
+        """Eliminar un proyecto"""
+        return await self.client._make_request("DELETE", f"{self.base_path}/{project_id}")
+
+class SprintService:
+    """Servicio para manejo de sprints"""
+    
+    def __init__(self, client: JaivierAPIClient):
+        self.client = client
+        self.base_path = "/sprintlist"
+    
+    async def get_all(self, project_id: Optional[int] = None) -> List[Dict]:
+        """Obtener todos los sprints"""
+        endpoint = self.base_path
+        if project_id:
+            endpoint += f"?project_id={project_id}"
+        
+        result = await self.client._make_request("GET", endpoint)
+        return result if isinstance(result, list) else []
+    
+    async def get_by_id(self, sprint_id: int) -> Optional[Dict]:
+        """Obtener sprint por ID"""
+        sprints = await self.get_all()
+        return next((sprint for sprint in sprints if sprint.get('id') == sprint_id), None)
+    
+    async def create(self, sprint_data: Dict) -> Dict:
+        """Crear un nuevo sprint"""
+        return await self.client._make_request("POST", self.base_path, sprint_data)
+    
+    async def update(self, sprint_id: int, sprint_data: Dict) -> Dict:
+        """Actualizar un sprint"""
+        return await self.client._make_request("PUT", f"{self.base_path}/{sprint_id}", sprint_data)
+    
+    async def delete(self, sprint_id: int) -> Dict:
+        """Eliminar un sprint"""
+        return await self.client._make_request("DELETE", f"{self.base_path}/{sprint_id}")
+
+class TaskService:
+    """Servicio para manejo de tareas"""
+    
+    def __init__(self, client: JaivierAPIClient):
+        self.client = client
+        self.base_path = "/tasklist"
+    
+    async def get_all(self, project_id: Optional[int] = None, sprint_id: Optional[int] = None) -> List[Dict]:
+        """Obtener todas las tareas"""
+        endpoint = self.base_path
+        params = []
+        
+        if project_id:
+            params.append(f"project_id={project_id}")
+        if sprint_id:
+            params.append(f"sprint_id={sprint_id}")
+        
+        if params:
+            endpoint += "?" + "&".join(params)
+        
+        result = await self.client._make_request("GET", endpoint)
+        return result if isinstance(result, list) else []
+    
+    async def get_by_id(self, task_id: int) -> Optional[Dict]:
+        """Obtener tarea por ID"""
+        tasks = await self.get_all()
+        return next((task for task in tasks if task.get('id') == task_id), None)
+    
+    async def create(self, task_data: Dict) -> Dict:
+        """Crear una nueva tarea"""
+        return await self.client._make_request("POST", self.base_path, task_data)
+    
+    async def update(self, task_id: int, task_data: Dict) -> Dict:
+        """Actualizar una tarea"""
+        return await self.client._make_request("PUT", f"{self.base_path}/{task_id}", task_data)
+    
+    async def delete(self, task_id: int) -> Dict:
+        """Eliminar una tarea"""
+        return await self.client._make_request("DELETE", f"{self.base_path}/{task_id}")
+    
+    async def assign_to_user(self, task_id: int, user_id: int) -> Dict:
+        """Asignar tarea a un usuario"""
+        assignment_data = {
+            "task_id": task_id,
+            "user_id": user_id
+        }
+        return await self.client._make_request("POST", "/asignee", assignment_data)
+
+class APIManager:
+    """Manager principal que agrupa todos los servicios"""
+    
+    def __init__(self, base_url: str):
+        self.client = JaivierAPIClient(base_url)
+        self.users = UserService(self.client)
+        self.projects = ProjectService(self.client)
+        self.sprints = SprintService(self.client)
+        self.tasks = TaskService(self.client)
+        self._authenticated = False
+    
+    async def initialize(self) -> bool:
+        """Inicializar y autenticar el cliente"""
+        success = await self.client.login()
+        if success:
+            self._authenticated = True
+            health = await self.client.health_check()
+            return health
+        return False
+    
+    async def close(self):
+        """Cerrar todas las conexiones"""
+        await self.client.close()
+    
+    @property
+    def authenticated(self) -> bool:
+        """Verificar si está autenticado"""
+        return self._authenticated
+    
+    async def health_check(self) -> bool:
+        """Verificar salud de la conexión"""
+        return await self.client.health_check()
