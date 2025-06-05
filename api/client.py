@@ -49,7 +49,11 @@ class APIClient:
                 
                 if response.status == 200:
                     try:
-                        return await response.json()
+                        result = await response.json()
+                        # Handle case where API returns boolean true/false
+                        if isinstance(result, bool):
+                            return {"success": result}
+                        return result
                     except:
                         return {"success": True, "data": await response.text()}
                 

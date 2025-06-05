@@ -60,7 +60,33 @@ class ProjectService:
     
     async def delete(self, project_id: int) -> Dict:
         """Eliminar un proyecto"""
-        return await self.client._make_request("DELETE", f"{self.base_path}/{project_id}")
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"Deleting project {project_id}")
+            result = await self.client._make_request("DELETE", f"{self.base_path}/{project_id}")
+            logger.info(f"Delete API response: {result} (type: {type(result)})")
+            
+            # Handle different response types
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    logger.info(f"Project {project_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+                elif result.get('error'):
+                    logger.error(f"Failed to delete project {project_id}: {result.get('error')}")
+                    return result
+                else:
+                    logger.info(f"Project {project_id} deleted successfully")
+                    return {"success": True, "deleted": True}
+            else:
+                # Handle unexpected response types
+                logger.warning(f"Unexpected response type {type(result)}: {result}")
+                return {"success": True, "deleted": True}
+                
+        except Exception as e:
+            logger.error(f"Error deleting project {project_id}: {e}")
+            return {"error": str(e), "success": False}
 
 class SprintService:
     """Servicio para manejo de sprints"""

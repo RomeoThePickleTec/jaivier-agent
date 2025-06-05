@@ -64,6 +64,8 @@ class JSONExecutor:
             result = await self._update_task(data)
         elif op_type == "DELETE_PROJECT":
             result = await self._delete_project(data)
+        elif op_type == "DELETE_PROJECTS_BY_NAME":
+            result = await self._delete_projects_by_name(data)
         elif op_type == "DELETE_SPRINT":
             result = await self._delete_sprint(data)
         elif op_type == "DELETE_TASK":
@@ -114,6 +116,8 @@ class JSONExecutor:
                 if project.get("name") == project_data["name"]:
                     return {"success": True, "data": project, "type": "project"}
             
+            # Fallback: use the data we sent with estimated ID
+            project_data["id"] = "New"
             return {"success": True, "data": project_data, "type": "project"}
         else:
             return {"success": False, "error": result.get("error", "Creation failed")}
@@ -140,6 +144,8 @@ class JSONExecutor:
                 if sprint.get("name") == sprint_data["name"]:
                     return {"success": True, "data": sprint, "type": "sprint"}
             
+            # Fallback: use the data we sent with estimated ID
+            sprint_data["id"] = "New"
             return {"success": True, "data": sprint_data, "type": "sprint"}
         else:
             return {"success": False, "error": result.get("error", "Creation failed")}
@@ -189,7 +195,9 @@ class JSONExecutor:
         logger.info(f"Task creation result: {result}")
         
         if result and not result.get("error"):
-            return {"success": True, "data": result, "type": "task"}
+            # For successful creation, return the task data we sent with default ID
+            task_data["id"] = "New"
+            return {"success": True, "data": task_data, "type": "task"}
         else:
             return {"success": False, "error": result.get("error", "Creation failed")}
     
@@ -219,9 +227,104 @@ class JSONExecutor:
     async def _update_task(self, data: Dict) -> Dict:
         return {"success": False, "error": "Update not implemented yet"}
     
-    # DELETE OPERATIONS (simplified - would need real endpoints)
+    # DELETE OPERATIONS
     async def _delete_project(self, data: Dict) -> Dict:
-        return {"success": False, "error": "Delete not implemented yet"}
+        project_id = data.get("id") or data.get("project_id")
+        
+        if not project_id:
+            return {"success": False, "error": "project_id required for deletion"}
+        
+        try:
+            project_id = int(project_id)
+            logger.info(f"[EXECUTOR] Deleting project {project_id}")
+            
+            # Get project name before deletion for response
+            project = await self.api_manager.projects.get_by_id(project_id)
+            project_name = project.get("name", f"Project {project_id}") if project else f"Project {project_id}"
+            
+            result = await self.api_manager.projects.delete(project_id)
+            
+            if result.get("success"):
+                return {
+                    "success": True, 
+                    "data": {"id": project_id, "name": project_name, "deleted": True}, 
+                    "type": "project_deleted"
+                }
+            else:
+                return {"success": False, "error": result.get("error", "Deletion failed")}
+                
+        except ValueError:
+            return {"success": False, "error": "Invalid project ID"}
+        except Exception as e:
+            logger.error(f"Error in _delete_project: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _delete_projects_by_name(self, data: Dict) -> Dict:
+        name_pattern = data.get("name_pattern") or data.get("name")
+        
+        if not name_pattern:
+            return {"success": False, "error": "name_pattern required for bulk deletion"}
+        
+        try:
+            # Get all projects
+            projects = await self.api_manager.projects.get_all()
+            
+            # Find projects matching the pattern (case-insensitive)
+            matching_projects = []
+            for project in projects:
+                project_name = project.get("name", "")
+                if name_pattern.lower() in project_name.lower():
+                    matching_projects.append(project)
+            
+            if not matching_projects:
+                return {
+                    "success": False, 
+                    "error": f"No projects found matching '{name_pattern}'"
+                }
+            
+            # Delete each matching project
+            deleted_projects = []
+            failed_deletions = []
+            
+            for project in matching_projects:
+                project_id = project.get("id")
+                project_name = project.get("name", f"Project {project_id}")
+                
+                try:
+                    logger.info(f"[EXECUTOR] Bulk deleting project {project_id}: {project_name}")
+                    result = await self.api_manager.projects.delete(project_id)
+                    
+                    if result.get("success"):
+                        deleted_projects.append({
+                            "id": project_id, 
+                            "name": project_name
+                        })
+                    else:
+                        failed_deletions.append({
+                            "id": project_id, 
+                            "name": project_name,
+                            "error": result.get("error", "Unknown error")
+                        })
+                except Exception as e:
+                    failed_deletions.append({
+                        "id": project_id, 
+                        "name": project_name,
+                        "error": str(e)
+                    })
+            
+            return {
+                "success": len(deleted_projects) > 0,
+                "data": {
+                    "deleted": deleted_projects,
+                    "failed": failed_deletions,
+                    "pattern": name_pattern
+                },
+                "type": "projects_bulk_deleted"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in _delete_projects_by_name: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _delete_sprint(self, data: Dict) -> Dict:
         return {"success": False, "error": "Delete not implemented yet"}
@@ -273,6 +376,12 @@ class JSONExecutor:
                 return self._format_tasks(result["data"])
             elif result_type in ["project", "sprint", "task"]:
                 return f"✅ {result_type.title()} created successfully!"
+            elif result_type == "project_deleted":
+                data = result.get("data", {})
+                name = data.get("name", "Project")
+                return f"🗑️ **{name}** deleted successfully!"
+            elif result_type == "projects_bulk_deleted":
+                return self._format_bulk_deletion(result["data"])
         
         # Handle multiple operations with detailed feedback
         if successful:
@@ -310,7 +419,7 @@ class JSONExecutor:
                 for task in tasks:
                     data = task.get("data", {})
                     title = data.get("title", "Unknown Task")
-                    task_id = data.get("id", "N/A")
+                    task_id = data.get("id", "New")
                     sprint_id = data.get("sprint_id", "N/A")
                     priority = ["", "🟢Low", "🔵Med", "🟡High", "🔴Crit"][min(data.get("priority", 2), 4)]
                     response_lines.append(f"  • {title} (ID: {task_id}) {priority}")
@@ -379,5 +488,34 @@ class JSONExecutor:
         if len(tasks) > MAX_TASKS:
             lines.append(f"\n... and {len(tasks) - MAX_TASKS} more tasks")
             lines.append(f"Use /tareas for paginated view")
+        
+        return "\n".join(lines)
+    
+    def _format_bulk_deletion(self, data: Dict) -> str:
+        deleted = data.get("deleted", [])
+        failed = data.get("failed", [])
+        pattern = data.get("pattern", "")
+        
+        lines = [f"🗑️ **Bulk Deletion Results for '{pattern}':**\n"]
+        
+        if deleted:
+            lines.append(f"✅ **Successfully Deleted ({len(deleted)}):**")
+            for project in deleted:
+                name = project.get("name", "Unknown")
+                proj_id = project.get("id", "N/A")
+                lines.append(f"  • {name} (ID: {proj_id})")
+            lines.append("")
+        
+        if failed:
+            lines.append(f"❌ **Failed to Delete ({len(failed)}):**")
+            for project in failed:
+                name = project.get("name", "Unknown")
+                proj_id = project.get("id", "N/A")
+                error = project.get("error", "Unknown error")
+                lines.append(f"  • {name} (ID: {proj_id}) - {error}")
+            lines.append("")
+        
+        if not deleted and not failed:
+            lines.append("❌ No projects found matching the pattern")
         
         return "\n".join(lines)

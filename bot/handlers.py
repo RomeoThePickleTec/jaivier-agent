@@ -260,9 +260,33 @@ Try: "crear proyecto MiApp" 🚀"""
     async def handle_natural_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle natural language commands"""
         message = update.message.text.lower()
+        original_message = update.message.text
         processing_msg = None
         
         try:
+            # Check if message is too long
+            if len(original_message) > 2000:
+                help_msg = f"""📝 **Mensaje muy largo** ({len(original_message)} caracteres)
+
+Para proyectos complejos, te recomiendo:
+
+🔹 **Resumir la información esencial:**
+   • Nombre del proyecto
+   • Tecnologías principales  
+   • Número de sprints
+   • Objetivo general
+
+📋 **Ejemplo:**
+   "crear proyecto Bookwise para app de reseñas de libros con TypeScript NextJS, 3 sprints: fundaciones, funcionalidad principal, deploy y mejoras"
+
+🤖 **Luego puedes pedir más detalles:**
+   • "agregar más tareas al sprint 1"
+   • "crear tareas específicas de autenticación"
+
+¿Quieres intentarlo con un mensaje más corto?"""
+                
+                await update.message.reply_text(help_msg, parse_mode='Markdown')
+                return
             # Check if it's a creation command first, before listing
             create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
             is_create_command = any(create_word in message for create_word in create_keywords)
@@ -332,9 +356,29 @@ Try: "crear proyecto MiApp" 🚀"""
                 await update.message.reply_text(response_text, parse_mode='Markdown')
             except Exception as parse_error:
                 logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                # Remove markdown formatting and send as plain text
-                plain_text = response_text.replace("**", "").replace("*", "")
-                await update.message.reply_text(plain_text)
+                # Check if message is too long for Telegram
+                if len(response_text) > 4000:
+                    # Split into smaller parts
+                    lines = response_text.split('\n')
+                    current_chunk = ""
+                    
+                    for line in lines:
+                        if len(current_chunk + line + '\n') > 4000:
+                            # Send current chunk
+                            plain_chunk = current_chunk.replace("**", "").replace("*", "")
+                            await update.message.reply_text(plain_chunk)
+                            current_chunk = line + '\n'
+                        else:
+                            current_chunk += line + '\n'
+                    
+                    # Send remaining chunk
+                    if current_chunk.strip():
+                        plain_chunk = current_chunk.replace("**", "").replace("*", "")
+                        await update.message.reply_text(plain_chunk)
+                else:
+                    # Remove markdown formatting and send as plain text
+                    plain_text = response_text.replace("**", "").replace("*", "")
+                    await update.message.reply_text(plain_text)
             
         except asyncio.TimeoutError:
             if processing_msg:

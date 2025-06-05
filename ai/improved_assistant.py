@@ -52,6 +52,7 @@ class ImprovedAIAssistant:
         - UPDATE_SPRINT: Update sprint (requires id)
         - UPDATE_TASK: Update task (requires id)
         - DELETE_PROJECT: Delete project (requires id)
+        - DELETE_PROJECTS_BY_NAME: Delete projects by name pattern
         - DELETE_SPRINT: Delete sprint (requires id)
         - DELETE_TASK: Delete task (requires id)
         
@@ -172,8 +173,40 @@ class ImprovedAIAssistant:
         """Fallback operations without AI"""
         message_lower = user_message.lower()
         
+        # DELETE OPERATIONS
+        if any(word in message_lower for word in ["eliminar proyecto", "delete project", "borrar proyecto"]):
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            if project_id:
+                return {
+                    "operations": [
+                        {"type": "DELETE_PROJECT", "data": {"id": project_id}}
+                    ],
+                    "response_template": f"🗑️ Project {project_id} deleted!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify project ID (e.g., 'delete project 5')"
+                }
+        
+        elif any(phrase in message_lower for phrase in ["eliminar todos los proyectos", "delete all projects", "borrar todos los proyectos", "eliminame todos"]):
+            # Extract name pattern from the message
+            name_pattern = self._extract_name_pattern(user_message)
+            if name_pattern:
+                return {
+                    "operations": [
+                        {"type": "DELETE_PROJECTS_BY_NAME", "data": {"name_pattern": name_pattern}}
+                    ],
+                    "response_template": f"🗑️ Deleting all projects matching '{name_pattern}'"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify what projects to delete (e.g., 'delete all projects with React')"
+                }
+        
         # CREATE OPERATIONS
-        if "crear proyecto" in message_lower or "new project" in message_lower:
+        elif "crear proyecto" in message_lower or "new project" in message_lower:
             name = self._extract_name(user_message, ["proyecto", "project"])
             return {
                 "operations": [
@@ -283,4 +316,36 @@ class ImprovedAIAssistant:
             match = re.search(pattern, message.lower())
             if match:
                 return int(match.group(1))
+        return None
+    
+    def _extract_name_pattern(self, message: str) -> Optional[str]:
+        """Extract name pattern for bulk operations"""
+        message_lower = message.lower()
+        
+        # Look for patterns like "que digan X", "with X", "containing X"
+        patterns = [
+            r"que digan\s+([^\n]+)",
+            r"que contengan\s+([^\n]+)", 
+            r"with\s+([^\n]+)",
+            r"containing\s+([^\n]+)",
+            r"llamados\s+([^\n]+)",
+            r"named\s+([^\n]+)"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                return match.group(1).strip()
+        
+        # Fallback: look for text after "proyectos" 
+        if "proyectos" in message_lower:
+            parts = message_lower.split("proyectos")
+            if len(parts) > 1:
+                remaining = parts[-1].strip()
+                # Remove common stopwords
+                for stop in ["que digan", "que contengan", "llamados", "con"]:
+                    if remaining.startswith(stop):
+                        remaining = remaining[len(stop):].strip()
+                return remaining if remaining else None
+        
         return None
