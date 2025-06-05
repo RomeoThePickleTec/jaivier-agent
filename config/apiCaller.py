@@ -1,4 +1,4 @@
-""""
+"""
 Configuramos aquí las llamadas al backend, las cuales obtienen toda la información del usuario
 """
 ##
@@ -33,3 +33,4 @@ def getSprints(url=BASE_URL):
     request(url).json()
 
 def sendRequest(url=BASE_URL):
+    request(url).json()

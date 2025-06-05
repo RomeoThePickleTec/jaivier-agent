@@ -99,8 +99,21 @@ class APIClient:
     async def health_check(self) -> bool:
         try:
             result = await self._make_request('GET', '/userlist')
-            return not result.get('error')
-        except:
+            logger.info(f"Health check result type: {type(result)}")
+            
+            # If result is a list, the API is working correctly
+            if isinstance(result, list):
+                return True
+            # If result is a dict with error, API has issues
+            elif isinstance(result, dict) and result.get('error'):
+                return False
+            # If result is a dict without error, API is working
+            elif isinstance(result, dict) and not result.get('error'):
+                return True
+            else:
+                return False
+        except Exception as e:
+            logger.error(f"Health check exception: {e}")
             return False
 
 
@@ -160,15 +173,22 @@ class TasksAPI:
         if sprint_id:
             params['sprint_id'] = sprint_id
         
+        logger.info(f"TasksAPI: Making request to {self.base_path} with params: {params}")
         result = await self.client._make_request('GET', self.base_path, params=params)
+        logger.info(f"TasksAPI: Raw result: {result}")
         
         if isinstance(result, list):
+            logger.info(f"TasksAPI: Returning list with {len(result)} tasks")
             return result
         elif isinstance(result, dict):
             if result.get('error'):
+                logger.error(f"TasksAPI: API returned error: {result['error']}")
                 return []
-            return result.get('data', [])
+            data = result.get('data', [])
+            logger.info(f"TasksAPI: Returning data with {len(data)} tasks")
+            return data
         else:
+            logger.warning(f"TasksAPI: Unexpected result type: {type(result)}")
             return []
     
     async def create(self, task_data: Dict) -> Optional[Dict]:

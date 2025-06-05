@@ -45,35 +45,48 @@ def format_users_list(users: List[Dict]) -> str:
     
     return message
 
-def format_tasks_list(tasks: List[Dict]) -> str:
-    """Formatear lista de tareas"""
+def format_tasks_list(tasks: List[Dict], max_tasks: int = 10) -> List[str]:
+    """Formatear lista de tareas en chunks para evitar límites de Telegram"""
     if not tasks:
-        return "📋 No hay tareas disponibles."
+        return ["📋 No hay tareas disponibles."]
     
-    message = "📋 **Tareas disponibles:**\n\n"
-    for task in tasks:
-        priority = task.get('priority', 2)
-        priority_emoji = "🔴" if priority == TaskPriority.CRITICAL else "🟡" if priority == TaskPriority.HIGH else "🟢" if priority == TaskPriority.LOW else "🔵"
-        
-        status = task.get('status', 0)
-        status_emoji = "⏳" if status == TaskStatus.IN_PROGRESS else "✅" if status == TaskStatus.COMPLETED else "📝"
-        
-        message += f"{status_emoji} {priority_emoji} **{task.get('title', 'Sin título')}** (ID: {task.get('id')})\n"
-        
-        description = task.get('description', 'Sin descripción')
-        if len(description) > 50:
-            description = description[:50] + "..."
-        message += f"   📝 {description}\n"
-        
-        if task.get('estimated_hours'):
-            message += f"   ⏱️ {task.get('estimated_hours')}h estimadas\n"
-        
-        if task.get('due_date'):
-            message += f"   📅 Vence: {task.get('due_date')[:10]}\n"
-        
-        message += "\n"
+    # Divide las tareas en chunks
+    task_chunks = [tasks[i:i + max_tasks] for i in range(0, len(tasks), max_tasks)]
+    messages = []
     
-    return message
+    for chunk_idx, chunk in enumerate(task_chunks):
+        message = ""
+        if len(task_chunks) > 1:
+            message = f"📋 Tareas (Página {chunk_idx + 1}/{len(task_chunks)}):\n\n"
+        else:
+            message = "📋 Tareas disponibles:\n\n"
+        
+        for task in chunk:
+            priority = task.get('priority', 2)
+            priority_emoji = "🔴" if priority == TaskPriority.CRITICAL else "🟡" if priority == TaskPriority.HIGH else "🟢" if priority == TaskPriority.LOW else "🔵"
+            
+            status = task.get('status', 0)
+            status_emoji = "⏳" if status == TaskStatus.IN_PROGRESS else "✅" if status == TaskStatus.COMPLETED else "📝"
+            
+            # Formateo simplificado para evitar problemas de parsing
+            message += f"{status_emoji} {priority_emoji} {task.get('title', 'Sin título')} (ID: {task.get('id')})\n"
+            
+            description = task.get('description', 'Sin descripción')
+            if len(description) > 50:
+                description = description[:50] + "..."
+            message += f"   📝 {description}\n"
+            
+            if task.get('estimated_hours'):
+                message += f"   ⏱️ {task.get('estimated_hours')}h estimadas\n"
+            
+            if task.get('due_date'):
+                message += f"   📅 Vence: {task.get('due_date')[:10]}\n"
+            
+            message += "\n"
+        
+        messages.append(message)
+    
+    return messages
 
 def format_statistics(users: List[Dict], projects: List[Dict], tasks: List[Dict]) -> str:
     """Formatear estadísticas del sistema"""

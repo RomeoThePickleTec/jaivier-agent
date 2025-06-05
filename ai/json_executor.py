@@ -160,10 +160,36 @@ class JSONExecutor:
         if data.get("sprint_id"):
             task_data["sprint_id"] = int(data["sprint_id"])
         
+        # If sprint_name is provided but not sprint_id, try to find it
+        if data.get("sprint_name") and not data.get("sprint_id"):
+            sprints = await self.api_manager.sprints.get_all()
+            for sprint in sprints:
+                if sprint.get("name", "").lower() == data["sprint_name"].lower():
+                    task_data["sprint_id"] = sprint.get("id")
+                    break
+        
+        # AUTO-DETECT: If no sprint_id provided, try to find from context
+        if not task_data.get("sprint_id"):
+            # Check if there's a sprint mentioned in the description
+            description = data.get("description", "").lower()
+            title = data.get("title", "").lower()
+            
+            # Get all sprints to search by name
+            sprints = await self.api_manager.sprints.get_all()
+            for sprint in sprints:
+                sprint_name = sprint.get("name", "").lower()
+                # Check if sprint name appears in title or description
+                if sprint_name in description or sprint_name in title:
+                    task_data["sprint_id"] = sprint.get("id")
+                    logger.info(f"Auto-detected sprint: {sprint_name} (ID: {sprint.get('id')})")
+                    break
+        
+        logger.info(f"Creating task with data: {task_data}")
         result = await self.api_manager.tasks.create(task_data)
+        logger.info(f"Task creation result: {result}")
         
         if result and not result.get("error"):
-            return {"success": True, "data": task_data, "type": "task"}
+            return {"success": True, "data": result, "type": "task"}
         else:
             return {"success": False, "error": result.get("error", "Creation failed")}
     
@@ -248,22 +274,64 @@ class JSONExecutor:
             elif result_type in ["project", "sprint", "task"]:
                 return f"✅ {result_type.title()} created successfully!"
         
-        # Handle multiple operations
+        # Handle multiple operations with detailed feedback
         if successful:
-            created_items = []
-            for result in successful:
-                if result.get("type") in ["project", "sprint", "task"]:
-                    created_items.append(result["type"])
+            # Group by type for better organization
+            projects = [r for r in successful if r.get("type") == "project"]
+            sprints = [r for r in successful if r.get("type") == "sprint"]
+            tasks = [r for r in successful if r.get("type") == "task"]
             
-            if created_items:
-                response = f"✅ Created: {', '.join(created_items)}"
-            else:
-                response = f"✅ {len(successful)} operations completed"
+            response_lines = ["🎉 **Creation Summary:**\n"]
+            
+            # Projects created
+            if projects:
+                response_lines.append("📁 **Projects:**")
+                for proj in projects:
+                    data = proj.get("data", {})
+                    name = data.get("name", "Unknown Project")
+                    proj_id = data.get("id", "N/A")
+                    response_lines.append(f"  • {name} (ID: {proj_id})")
+                response_lines.append("")
+            
+            # Sprints created
+            if sprints:
+                response_lines.append("🏃 **Sprints:**")
+                for sprint in sprints:
+                    data = sprint.get("data", {})
+                    name = data.get("name", "Unknown Sprint")
+                    sprint_id = data.get("id", "N/A")
+                    project_id = data.get("project_id", "N/A")
+                    response_lines.append(f"  • {name} (ID: {sprint_id}, Project: {project_id})")
+                response_lines.append("")
+            
+            # Tasks created
+            if tasks:
+                response_lines.append("📋 **Tasks:**")
+                for task in tasks:
+                    data = task.get("data", {})
+                    title = data.get("title", "Unknown Task")
+                    task_id = data.get("id", "N/A")
+                    sprint_id = data.get("sprint_id", "N/A")
+                    priority = ["", "🟢Low", "🔵Med", "🟡High", "🔴Crit"][min(data.get("priority", 2), 4)]
+                    response_lines.append(f"  • {title} (ID: {task_id}) {priority}")
+                
+                if len(tasks) > 5:
+                    response_lines.append(f"  ... and {len(tasks) - 5} more tasks")
+                response_lines.append("")
+            
+            # Summary
+            total_created = len(successful)
+            response_lines.append(f"✅ **Total: {total_created} items created!**")
+            
+            response = "\n".join(response_lines)
         else:
             response = "❌ No operations completed"
         
         if failed:
-            response += f"\n❌ {len(failed)} failed"
+            response += f"\n\n❌ **{len(failed)} operations failed**"
+            for fail in failed[:3]:  # Show first 3 failures
+                error = fail.get("error", "Unknown error")
+                response += f"\n  • {error}"
         
         return response
     
@@ -296,11 +364,20 @@ class JSONExecutor:
         if not tasks:
             return "📋 No tasks found"
         
+        # Limit to first 10 tasks to avoid message length limits
+        MAX_TASKS = 10
+        limited_tasks = tasks[:MAX_TASKS]
+        
         lines = ["📋 **Tasks:**\n"]
-        for t in tasks:
+        for t in limited_tasks:
             title = t.get("title", "Unknown")
             tid = t.get("id", "N/A")
-            priority = ["", "Low", "Medium", "High", "Critical"][t.get("priority", 2)]
+            priority = ["", "Low", "Medium", "High", "Critical"][min(t.get("priority", 2), 4)]
+            # Simplified formatting to avoid parsing issues
             lines.append(f"• {title} (ID: {tid}) - {priority}")
+        
+        if len(tasks) > MAX_TASKS:
+            lines.append(f"\n... and {len(tasks) - MAX_TASKS} more tasks")
+            lines.append(f"Use /tareas for paginated view")
         
         return "\n".join(lines)

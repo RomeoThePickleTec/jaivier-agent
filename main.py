@@ -6,7 +6,7 @@ import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 from config.settings import TELEGRAM_BOT_TOKEN, API_BASE_URL, LOG_LEVEL, LOG_FORMAT, DEFAULT_USERNAME, DEFAULT_PASSWORD
-from api.client import APIManager  # Updated import
+from api.services import APIManager  # Updated import
 from ai.improved_assistant import ImprovedAIAssistant
 from ai.json_executor import JSONExecutor
 from bot.handlers import BotHandlers

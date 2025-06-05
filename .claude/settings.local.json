@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python3:*)",
+      "Bash(pkill:*)",
+      "Bash(jobs)",
+      "Bash(pgrep:*)",
+      "Bash(kill:*)",
+      "Bash(python:*)",
+      "Bash(lsof:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

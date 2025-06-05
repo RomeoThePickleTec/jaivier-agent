@@ -78,6 +78,9 @@ class ImprovedAIAssistant:
         Sprints: name, description, project_id, start_date, end_date, status (active/completed)
         Tasks: title, description, project_id, sprint_id, priority (low/medium/high/critical), status (todo/in_progress/completed), estimated_hours, due_date
         
+        IMPORTANT: When referencing projects or sprints by name, use the IDs from the AVAILABLE PROJECTS/SPRINTS list provided in the context.
+        For tasks, always include sprint_id if a sprint is mentioned by name.
+        
         EXAMPLES:
         
         "create project called MyApp":
@@ -123,6 +126,17 @@ class ImprovedAIAssistant:
                 if context.get("current_sprint"):
                     sprint = context["current_sprint"]
                     context_info += f"Current sprint: {sprint['name']} (ID: {sprint['id']})\n"
+                
+                # Add available projects and sprints
+                if context.get("available_projects"):
+                    context_info += "\nAVAILABLE PROJECTS:\n"
+                    for proj in context["available_projects"]:
+                        context_info += f"- {proj.get('name')} (ID: {proj.get('id')})\n"
+                
+                if context.get("available_sprints"):
+                    context_info += "\nAVAILABLE SPRINTS:\n"
+                    for sprint in context["available_sprints"]:
+                        context_info += f"- {sprint.get('name')} (ID: {sprint.get('id')}, Project: {sprint.get('project_id')})\n"
             
             prompt = f"""
             {self.system_prompt}

@@ -67,22 +67,37 @@ Try: "crear proyecto MiApp" 🚀"""
         
         try:
             health = await self.api_manager.health_check()
+            logger.info(f"Health check result: {health}")
             
             if health:
-                # Get counts
+                # Get counts with detailed logging
+                logger.info("Getting projects...")
                 projects = await self.api_manager.projects.get_all()
+                logger.info(f"Projects result: {projects}")
+                
+                logger.info("Getting sprints...")
                 sprints = await self.api_manager.sprints.get_all()
+                logger.info(f"Sprints result: {sprints}")
+                
+                logger.info("Getting tasks...")
                 tasks = await self.api_manager.tasks.get_all()
+                logger.info(f"Tasks result: {tasks}")
                 
                 status_msg = f"""✅ **CONNECTED**
 
 🔗 **API:** {API_BASE_URL}
 👤 **User:** {DEFAULT_USERNAME}
+🔐 **Auth:** {self.api_manager.authenticated}
 
 📊 **Data:**
-• 📁 Projects: {len(projects)}
-• 🏃 Sprints: {len(sprints)}
-• 📋 Tasks: {len(tasks)}"""
+• 📁 Projects: {len(projects) if projects else 0}
+• 🏃 Sprints: {len(sprints) if sprints else 0}
+• 📋 Tasks: {len(tasks) if tasks else 0}
+
+**Debug Info:**
+• Projects type: {type(projects)}
+• Sprints type: {type(sprints)}
+• Tasks type: {type(tasks)}"""
             else:
                 status_msg = f"""❌ **DISCONNECTED**
 
@@ -103,18 +118,27 @@ Try: "crear proyecto MiApp" 🚀"""
                 await update.message.reply_text("📁 No projects found")
                 return
             
-            lines = ["📁 **Projects:**\n"]
+            lines = ["📁 Projects:\n"]
             for p in projects:
                 if isinstance(p, dict):
                     name = p.get("name", "Unknown")
                     pid = p.get("id", "N/A")
                     status = p.get("status", 0)
                     status_text = ["Active", "Completed", "Paused"][min(status, 2)]
-                    lines.append(f"• **{name}** (ID: {pid}) - {status_text}")
+                    lines.append(f"• {name} (ID: {pid}) - {status_text}")
                 else:
                     lines.append(f"• {str(p)}")
             
-            await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+            message_text = "\n".join(lines)
+            
+            # Try with markdown first, fallback to plain text
+            try:
+                await update.message.reply_text(message_text, parse_mode='Markdown')
+            except Exception as parse_error:
+                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
+                # Remove markdown formatting and send as plain text
+                plain_text = message_text.replace("**", "").replace("*", "")
+                await update.message.reply_text(plain_text)
             
         except Exception as e:
             logger.error(f"Error listing projects: {e}")
@@ -140,7 +164,16 @@ Try: "crear proyecto MiApp" 🚀"""
                 else:
                     lines.append(f"• {str(s)}")
             
-            await update.message.reply_text("\n".join(lines))
+            message_text = "\n".join(lines)
+            
+            # Try with markdown first, fallback to plain text
+            try:
+                await update.message.reply_text(message_text, parse_mode='Markdown')
+            except Exception as parse_error:
+                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
+                # Remove markdown formatting and send as plain text
+                plain_text = message_text.replace("**", "").replace("*", "")
+                await update.message.reply_text(plain_text)
             
         except Exception as e:
             logger.error(f"Error listing sprints: {e}")
@@ -148,29 +181,51 @@ Try: "crear proyecto MiApp" 🚀"""
     
     async def list_tasks_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
+            logger.info("Starting task retrieval...")
             tasks = await self.api_manager.tasks.get_all()
+            logger.info(f"Retrieved {len(tasks) if tasks else 0} tasks: {tasks}")
             
             if not tasks:
                 await update.message.reply_text("📋 No tasks found")
                 return
             
-            lines = ["📋 **Tasks:**\n"]
-            for t in tasks:
-                if isinstance(t, dict):
-                    title = t.get("title", "Unknown")
-                    tid = t.get("id", "N/A")
-                    priority = t.get("priority", 2)
-                    status = t.get("status", 0)
-                    
-                    priority_text = ["", "🟢Low", "🔵Medium", "🟡High", "🔴Critical"][min(priority, 4)]
-                    status_text = ["📝TODO", "⏳Progress", "✅Done"][min(status, 2)]
-                    
-                    lines.append(f"• **{title}** (ID: {tid})")
-                    lines.append(f"  {priority_text} | {status_text}")
-                else:
-                    lines.append(f"• {str(t)}")
+            # Paginate tasks to avoid message length limits
+            MAX_TASKS_PER_MESSAGE = 10
+            task_chunks = [tasks[i:i + MAX_TASKS_PER_MESSAGE] for i in range(0, len(tasks), MAX_TASKS_PER_MESSAGE)]
             
-            await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+            for chunk_idx, chunk in enumerate(task_chunks):
+                lines = []
+                if len(task_chunks) > 1:
+                    lines.append(f"📋 Tasks (Page {chunk_idx + 1}/{len(task_chunks)}):\n")
+                else:
+                    lines.append("📋 Tasks:\n")
+                
+                for t in chunk:
+                    if isinstance(t, dict):
+                        title = t.get("title", "Unknown")
+                        tid = t.get("id", "N/A")
+                        priority = t.get("priority", 2)
+                        status = t.get("status", 0)
+                        
+                        priority_text = ["", "🟢Low", "🔵Medium", "🟡High", "🔴Critical"][min(priority, 4)]
+                        status_text = ["📝TODO", "⏳Progress", "✅Done"][min(status, 2)]
+                        
+                        # Simplified formatting to avoid entity parsing issues
+                        lines.append(f"• {title} (ID: {tid})")
+                        lines.append(f"  {priority_text} | {status_text}")
+                    else:
+                        lines.append(f"• {str(t)}")
+                
+                message_text = "\n".join(lines)
+                
+                # Try with markdown first, fallback to plain text
+                try:
+                    await update.message.reply_text(message_text, parse_mode='Markdown')
+                except Exception as parse_error:
+                    logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
+                    # Remove markdown formatting and send as plain text
+                    plain_text = message_text.replace("**", "").replace("*", "")
+                    await update.message.reply_text(plain_text)
             
         except Exception as e:
             logger.error(f"Error listing tasks: {e}")
@@ -208,18 +263,30 @@ Try: "crear proyecto MiApp" 🚀"""
         processing_msg = None
         
         try:
-            # Quick routing for simple list commands
-            if any(word in message for word in ["mostrar proyecto", "list project", "ver proyecto", "proyectos"]):
-                await self.list_projects_command(update, context)
-                return
+            # Check if it's a creation command first, before listing
+            create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
+            is_create_command = any(create_word in message for create_word in create_keywords)
             
-            if any(word in message for word in ["mostrar sprint", "list sprint", "ver sprint", "sprints"]):
-                await self.list_sprints_command(update, context)
-                return
+            # Quick routing for simple list commands (only if NOT creating)
+            if not is_create_command:
+                if any(word in message for word in ["mostrar proyecto", "list project", "ver proyecto", "proyectos"]):
+                    await self.list_projects_command(update, context)
+                    return
+                
+                if any(word in message for word in ["mostrar sprint", "list sprint", "ver sprint", "sprints"]):
+                    await self.list_sprints_command(update, context)
+                    return
             
-            if any(word in message for word in ["mostrar tarea", "list task", "ver tarea", "tareas"]):
-                await self.list_tasks_command(update, context)
-                return
+            # Only trigger task list if it's explicitly asking to list/show, not create
+            if not is_create_command:
+                list_keywords = ["mostrar tarea", "list task", "ver tarea", "listar tarea"]
+                
+                if any(keyword in message for keyword in list_keywords):
+                    await self.list_tasks_command(update, context)
+                    return
+                elif "tareas" in message:
+                    await self.list_tasks_command(update, context)
+                    return
             
             if any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios"]):
                 await self.list_users_command(update, context)
@@ -228,9 +295,21 @@ Try: "crear proyecto MiApp" 🚀"""
             # For complex operations, use AI + JSON executor
             processing_msg = await update.message.reply_text("🤔 Processing your request...")
             
+            # Build context with available projects and sprints
+            try:
+                projects = await self.api_manager.projects.get_all()
+                sprints = await self.api_manager.sprints.get_all()
+                
+                context = {
+                    "available_projects": projects[:5],  # Limit to avoid too much context
+                    "available_sprints": sprints[:10]   # Show recent sprints
+                }
+            except:
+                context = {}
+            
             # Generate operations with AI
             operations_json = await asyncio.wait_for(
-                self.ai_assistant.generate_operations(message, {}),
+                self.ai_assistant.generate_operations(message, context),
                 timeout=30.0
             )
             
@@ -243,18 +322,35 @@ Try: "crear proyecto MiApp" 🚀"""
             )
             
             if processing_msg:
-                await processing_msg.delete()
-            await update.message.reply_text(response_text, parse_mode='Markdown')
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass  # Ignore delete errors
+            
+            # Try with markdown first, fallback to plain text
+            try:
+                await update.message.reply_text(response_text, parse_mode='Markdown')
+            except Exception as parse_error:
+                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
+                # Remove markdown formatting and send as plain text
+                plain_text = response_text.replace("**", "").replace("*", "")
+                await update.message.reply_text(plain_text)
             
         except asyncio.TimeoutError:
             if processing_msg:
-                await processing_msg.delete()
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass
             await update.message.reply_text("⏰ Request timeout. Try simpler commands like '/proyectos'")
             
         except Exception as e:
             logger.error(f"Error in natural message handling: {e}")
             if processing_msg:
-                await processing_msg.delete()
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass
             
             # Provide helpful error response
             error_msg = f"❌ Error processing request.\n\nTry these instead:\n• /proyectos\n• /sprints\n• /tareas\n• \"crear proyecto MyApp\""

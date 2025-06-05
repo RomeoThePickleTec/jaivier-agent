@@ -2,12 +2,12 @@
 """Servicios específicos para cada entidad de la API"""
 
 from typing import List, Dict, Optional
-from .client import JaivierAPIClient
+from .client import APIClient
 
 class UserService:
     """Servicio para manejo de usuarios"""
     
-    def __init__(self, client: JaivierAPIClient):
+    def __init__(self, client: APIClient):
         self.client = client
         self.base_path = "/userlist"
     
@@ -36,7 +36,7 @@ class UserService:
 class ProjectService:
     """Servicio para manejo de proyectos"""
     
-    def __init__(self, client: JaivierAPIClient):
+    def __init__(self, client: APIClient):
         self.client = client
         self.base_path = "/projectlist"
     
@@ -65,7 +65,7 @@ class ProjectService:
 class SprintService:
     """Servicio para manejo de sprints"""
     
-    def __init__(self, client: JaivierAPIClient):
+    def __init__(self, client: APIClient):
         self.client = client
         self.base_path = "/sprintlist"
     
@@ -98,7 +98,7 @@ class SprintService:
 class TaskService:
     """Servicio para manejo de tareas"""
     
-    def __init__(self, client: JaivierAPIClient):
+    def __init__(self, client: APIClient):
         self.client = client
         self.base_path = "/tasklist"
     
@@ -147,21 +147,39 @@ class APIManager:
     """Manager principal que agrupa todos los servicios"""
     
     def __init__(self, base_url: str):
-        self.client = JaivierAPIClient(base_url)
+        from .client import APIClient
+        self.client = APIClient(base_url)
         self.users = UserService(self.client)
         self.projects = ProjectService(self.client)
         self.sprints = SprintService(self.client)
         self.tasks = TaskService(self.client)
         self._authenticated = False
     
-    async def initialize(self) -> bool:
+    async def initialize(self, username: str = None, password: str = None) -> bool:
         """Inicializar y autenticar el cliente"""
-        success = await self.client.login()
-        if success:
-            self._authenticated = True
-            health = await self.client.health_check()
-            return health
-        return False
+        from config.settings import DEFAULT_USERNAME, DEFAULT_PASSWORD
+        
+        username = username or DEFAULT_USERNAME
+        password = password or DEFAULT_PASSWORD
+        
+        try:
+            success = await self.client.authenticate(username, password)
+            if success:
+                self._authenticated = True
+                health = await self.client.health_check()
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Authentication: {success}, Health: {health}")
+                return health
+            return False
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error initializing API Manager: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self._authenticated = False
+            return False
     
     async def close(self):
         """Cerrar todas las conexiones"""
