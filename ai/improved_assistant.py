@@ -56,6 +56,10 @@ class ImprovedAIAssistant:
         - DELETE_SPRINT: Delete sprint (requires id)
         - DELETE_SPRINTS_BY_NAME: Delete sprints by name pattern
         - DELETE_TASK: Delete task (requires id)
+        - ASSIGN_USER_TO_PROJECT: Assign user to project
+        - REMOVE_USER_FROM_PROJECT: Remove user from project
+        - LIST_PROJECT_MEMBERS: List project members
+        - AUTO_ASSIGN_USERS: Auto-assign users to project
         
         RESPONSE FORMAT:
         {
@@ -287,6 +291,134 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify task ID or title (e.g., 'delete task 5' or 'elimina la tarea llamada Setup')"
                 }
         
+        elif any(word in message_lower for word in ["actualizar proyecto", "update project", "modificar proyecto", "cambiar proyecto"]):
+            # Extract project ID or name
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            project_name = self._extract_name_after_keyword(user_message, ["llamado", "named"]) or self._extract_name(user_message, ["proyecto", "project"])
+            
+            # Extract what to update
+            update_data = {}
+            
+            # Extract new name
+            if any(phrase in message_lower for phrase in ["nombre a", "name to", "renombrar a", "rename to"]):
+                new_name = self._extract_update_value(user_message, ["nombre a", "name to", "renombrar a", "rename to"])
+                if new_name:
+                    update_data["name"] = new_name
+            
+            # Extract new description
+            if any(phrase in message_lower for phrase in ["descripción a", "description to", "descripcion a"]):
+                new_desc = self._extract_update_value(user_message, ["descripción a", "description to", "descripcion a"])
+                if new_desc:
+                    update_data["description"] = new_desc
+            
+            # Extract new status
+            if any(phrase in message_lower for phrase in ["estado a", "status to", "marcar como"]):
+                new_status = self._extract_update_value(user_message, ["estado a", "status to", "marcar como"])
+                if new_status:
+                    update_data["status"] = new_status
+            
+            if project_id:
+                update_data["id"] = project_id
+            elif project_name:
+                update_data["name"] = project_name  # Use as search key if no new name provided
+            
+            if update_data and (project_id or project_name):
+                return {
+                    "operations": [
+                        {"type": "UPDATE_PROJECT", "data": update_data}
+                    ],
+                    "response_template": f"✏️ Project updated successfully!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify project and what to update (e.g., 'update project 5 name to NewName' or 'actualizar proyecto llamado OldName descripción a New description')"
+                }
+        
+        elif any(phrase in message_lower for phrase in ["asignar usuario", "assign user", "agregar usuario al proyecto", "add user to project"]):
+            # Extract user and project info
+            user_id = self._extract_id(user_message, ["user", "usuario"])
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            user_name = self._extract_name_after_keyword(user_message, ["usuario", "user"])
+            project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
+            
+            data = {}
+            if user_id:
+                data["user_id"] = user_id
+            elif user_name:
+                data["user_name"] = user_name
+            
+            if project_id:
+                data["project_id"] = project_id
+            elif project_name:
+                data["project_name"] = project_name
+            
+            if data.get("user_id") or data.get("user_name"):
+                if data.get("project_id") or data.get("project_name"):
+                    return {
+                        "operations": [
+                            {"type": "ASSIGN_USER_TO_PROJECT", "data": data}
+                        ],
+                        "response_template": "👥 User assigned to project!"
+                    }
+            
+            return {
+                "operations": [],
+                "response_template": "❌ Please specify both user and project (e.g., 'assign user John to project WebApp')"
+            }
+        
+        elif any(phrase in message_lower for phrase in ["asignar automaticamente", "auto assign", "asignacion automatica", "auto-assign"]):
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
+            
+            # Extract count
+            count = 2  # default
+            count_match = re.search(r"(\d+)\s*usuario", message_lower)
+            if count_match:
+                count = int(count_match.group(1))
+            
+            data = {"count": count}
+            if project_id:
+                data["project_id"] = project_id
+            elif project_name:
+                data["project_name"] = project_name
+            
+            if data.get("project_id") or data.get("project_name"):
+                return {
+                    "operations": [
+                        {"type": "AUTO_ASSIGN_USERS", "data": data}
+                    ],
+                    "response_template": f"🤖 Auto-assigning {count} users to project!"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify project for auto-assignment (e.g., 'auto assign 3 users to project WebApp')"
+                }
+        
+        elif any(phrase in message_lower for phrase in ["mostrar miembros", "members of project", "ver equipo del proyecto", "project members"]):
+            project_id = self._extract_id(user_message, ["project", "proyecto"])
+            project_name = self._extract_name_after_keyword(user_message, ["proyecto", "project"])
+            
+            data = {}
+            if project_id:
+                data["project_id"] = project_id
+            elif project_name:
+                data["project_name"] = project_name
+            
+            if data.get("project_id") or data.get("project_name"):
+                return {
+                    "operations": [
+                        {"type": "LIST_PROJECT_MEMBERS", "data": data}
+                    ],
+                    "response_template": "👥 Here are the project members:"
+                }
+            else:
+                return {
+                    "operations": [],
+                    "response_template": "❌ Please specify project (e.g., 'show members of project WebApp')"
+                }
+        
         # CREATE OPERATIONS
         elif "crear proyecto" in message_lower or "new project" in message_lower:
             name = self._extract_name(user_message, ["proyecto", "project"])
@@ -324,6 +456,14 @@ class ImprovedAIAssistant:
             }
         
         # LIST OPERATIONS
+        elif any(word in message_lower for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "users", "equipo", "team", "mostrar equipo", "ver equipo"]):
+            return {
+                "operations": [
+                    {"type": "LIST_USERS", "data": {}}
+                ],
+                "response_template": "👥 Here are the team members:"
+            }
+        
         elif any(word in message_lower for word in ["mostrar proyecto", "list project", "ver proyecto"]):
             return {
                 "operations": [
@@ -478,5 +618,22 @@ class ImprovedAIAssistant:
                     if remaining.startswith(stop):
                         remaining = remaining[len(stop):].strip()
                 return remaining if remaining else None
+        
+        return None
+    
+    def _extract_update_value(self, message: str, keywords: list) -> Optional[str]:
+        """Extract value after update keywords like 'name to X' or 'descripción a Y'"""
+        message_lower = message.lower()
+        
+        for keyword in keywords:
+            if keyword in message_lower:
+                parts = message_lower.split(keyword)
+                if len(parts) > 1:
+                    value_part = parts[-1].strip()
+                    # Clean up - remove common trailing words
+                    for stop in [" del proyecto", " of project", " y ", " and "]:
+                        if stop in value_part:
+                            value_part = value_part.split(stop)[0].strip()
+                    return value_part.title() if value_part else None
         
         return None

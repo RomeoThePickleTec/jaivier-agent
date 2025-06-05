@@ -56,6 +56,8 @@ class JSONExecutor:
             result = await self._list_sprints(data)
         elif op_type == "LIST_TASKS":
             result = await self._list_tasks(data)
+        elif op_type == "LIST_USERS":
+            result = await self._list_users(data)
         elif op_type == "UPDATE_PROJECT":
             result = await self._update_project(data)
         elif op_type == "UPDATE_SPRINT":
@@ -72,6 +74,14 @@ class JSONExecutor:
             result = await self._delete_sprints_by_name(data)
         elif op_type == "DELETE_TASK":
             result = await self._delete_task(data)
+        elif op_type == "ASSIGN_USER_TO_PROJECT":
+            result = await self._assign_user_to_project(data)
+        elif op_type == "REMOVE_USER_FROM_PROJECT":
+            result = await self._remove_user_from_project(data)
+        elif op_type == "LIST_PROJECT_MEMBERS":
+            result = await self._list_project_members(data)
+        elif op_type == "AUTO_ASSIGN_USERS":
+            result = await self._auto_assign_users(data)
         else:
             result = {"success": False, "error": f"Unknown operation: {op_type}"}
         
@@ -219,9 +229,90 @@ class JSONExecutor:
         tasks = await self.api_manager.tasks.get_all(project_id, sprint_id)
         return {"success": True, "data": tasks, "type": "tasks"}
     
-    # UPDATE OPERATIONS (simplified - would need real endpoints)
+    async def _list_users(self, data: Dict) -> Dict:
+        users = await self.api_manager.users.get_all()
+        return {"success": True, "data": users, "type": "users"}
+    
+    # UPDATE OPERATIONS
     async def _update_project(self, data: Dict) -> Dict:
-        return {"success": False, "error": "Update not implemented yet"}
+        project_id = data.get("id") or data.get("project_id")
+        project_name = data.get("name")
+        
+        # If no ID but we have a name, search for the project
+        if not project_id and project_name:
+            try:
+                projects = await self.api_manager.projects.get_all()
+                for project in projects:
+                    if project.get("name", "").lower() == project_name.lower():
+                        project_id = project.get("id")
+                        break
+                
+                if not project_id:
+                    return {"success": False, "error": f"Project '{project_name}' not found"}
+            except Exception as e:
+                return {"success": False, "error": f"Error searching for project: {e}"}
+        
+        if not project_id:
+            return {"success": False, "error": "project_id or name required for update"}
+        
+        try:
+            project_id = int(project_id)
+            logger.info(f"[EXECUTOR] Updating project {project_id}")
+            
+            # Get current project data
+            current_project = await self.api_manager.projects.get_by_id(project_id)
+            if not current_project:
+                return {"success": False, "error": f"Project {project_id} not found"}
+            
+            # Prepare update data - merge with current data
+            update_data = {}
+            
+            # Update fields if provided
+            if data.get("name"):
+                update_data["name"] = data["name"]
+            if data.get("description"):
+                update_data["description"] = data["description"]
+            if data.get("status"):
+                update_data["status"] = self._parse_status(data["status"], "project")
+            if data.get("start_date"):
+                update_data["start_date"] = self._format_date(data["start_date"])
+            if data.get("end_date"):
+                update_data["end_date"] = self._format_date(data["end_date"])
+            
+            # Merge current data with updates (keep existing values for unspecified fields)
+            final_data = {
+                "name": update_data.get("name", current_project.get("name")),
+                "description": update_data.get("description", current_project.get("description", "")),
+                "status": update_data.get("status", current_project.get("status", 0)),
+                "start_date": update_data.get("start_date", current_project.get("start_date")),
+                "end_date": update_data.get("end_date", current_project.get("end_date"))
+            }
+            
+            result = await self.api_manager.projects.update(project_id, final_data)
+            
+            if result.get("success") or not result.get("error"):
+                # Get updated project data
+                await asyncio.sleep(0.5)  # Wait for update to process
+                updated_project = await self.api_manager.projects.get_by_id(project_id)
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "id": project_id,
+                        "name": final_data["name"],
+                        "updated_fields": list(update_data.keys()),
+                        "updated": True
+                    },
+                    "type": "project_updated"
+                }
+            else:
+                return {"success": False, "error": result.get("error", "Update failed")}
+                
+        except ValueError:
+            return {"success": False, "error": "Invalid project ID"}
+        except Exception as e:
+            logger.error(f"Error in _update_project: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _update_sprint(self, data: Dict) -> Dict:
         return {"success": False, "error": "Update not implemented yet"}
@@ -504,6 +595,190 @@ class JSONExecutor:
             logger.error(f"Error in _delete_task: {e}")
             return {"success": False, "error": str(e)}
     
+    # PROJECT MEMBER OPERATIONS
+    async def _assign_user_to_project(self, data: Dict) -> Dict:
+        project_id = data.get("project_id")
+        user_id = data.get("user_id") 
+        project_name = data.get("project_name")
+        user_name = data.get("user_name")
+        role = data.get("role", "member")
+        
+        try:
+            # Resolve project ID if name provided
+            if not project_id and project_name:
+                projects = await self.api_manager.projects.get_all()
+                for project in projects:
+                    if project.get("name", "").lower() == project_name.lower():
+                        project_id = project.get("id")
+                        break
+                
+                if not project_id:
+                    return {"success": False, "error": f"Project '{project_name}' not found"}
+            
+            # Resolve user ID if name provided
+            if not user_id and user_name:
+                users = await self.api_manager.users.get_all()
+                for user in users:
+                    if (user.get("full_name", "").lower() == user_name.lower() or 
+                        user.get("username", "").lower() == user_name.lower()):
+                        user_id = user.get("id")
+                        break
+                
+                if not user_id:
+                    return {"success": False, "error": f"User '{user_name}' not found"}
+            
+            if not project_id or not user_id:
+                return {"success": False, "error": "Both project_id and user_id are required"}
+            
+            # Get user and project names for response
+            user = await self.api_manager.users.get_by_id(user_id)
+            project = await self.api_manager.projects.get_by_id(project_id)
+            
+            user_display = user.get("full_name", user.get("username", f"User {user_id}")) if user else f"User {user_id}"
+            project_display = project.get("name", f"Project {project_id}") if project else f"Project {project_id}"
+            
+            result = await self.api_manager.project_members.assign_user(project_id, user_id, role)
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "data": {
+                        "user_id": user_id,
+                        "project_id": project_id,
+                        "user_name": user_display,
+                        "project_name": project_display,
+                        "role": role,
+                        "assigned": True
+                    },
+                    "type": "user_assigned"
+                }
+            else:
+                return {"success": False, "error": result.get("error", "Assignment failed")}
+                
+        except Exception as e:
+            logger.error(f"Error in _assign_user_to_project: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _remove_user_from_project(self, data: Dict) -> Dict:
+        project_id = data.get("project_id")
+        user_id = data.get("user_id")
+        
+        if not project_id or not user_id:
+            return {"success": False, "error": "Both project_id and user_id are required"}
+        
+        try:
+            result = await self.api_manager.project_members.remove_user(project_id, user_id)
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "data": {"user_id": user_id, "project_id": project_id, "removed": True},
+                    "type": "user_removed"
+                }
+            else:
+                return {"success": False, "error": result.get("error", "Removal failed")}
+                
+        except Exception as e:
+            logger.error(f"Error in _remove_user_from_project: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _list_project_members(self, data: Dict) -> Dict:
+        project_id = data.get("project_id")
+        
+        if not project_id:
+            return {"success": False, "error": "project_id is required"}
+        
+        try:
+            members = await self.api_manager.project_members.get_by_project(project_id)
+            
+            # Enrich with user details
+            enriched_members = []
+            for member in members:
+                user_id = member.get("user_id")
+                if user_id:
+                    user = await self.api_manager.users.get_by_id(user_id)
+                    if user:
+                        enriched_members.append({
+                            **member,
+                            "user_details": user
+                        })
+                    else:
+                        enriched_members.append(member)
+                else:
+                    enriched_members.append(member)
+            
+            return {"success": True, "data": enriched_members, "type": "project_members"}
+            
+        except Exception as e:
+            logger.error(f"Error in _list_project_members: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _auto_assign_users(self, data: Dict) -> Dict:
+        project_id = data.get("project_id")
+        criteria = data.get("criteria", "random")  # random, by_role, least_busy
+        count = data.get("count", 2)
+        
+        if not project_id:
+            return {"success": False, "error": "project_id is required"}
+        
+        try:
+            # Get all users
+            users = await self.api_manager.users.get_all()
+            active_users = [u for u in users if u.get("active", True)]
+            
+            if not active_users:
+                return {"success": False, "error": "No active users available for assignment"}
+            
+            # Get current project members to avoid duplicates
+            current_members = await self.api_manager.project_members.get_by_project(project_id)
+            current_user_ids = [m.get("user_id") for m in current_members]
+            
+            # Filter out already assigned users
+            available_users = [u for u in active_users if u.get("id") not in current_user_ids]
+            
+            if not available_users:
+                return {"success": False, "error": "All active users are already assigned to this project"}
+            
+            # Select users based on criteria
+            selected_users = []
+            if criteria == "random":
+                import random
+                selected_users = random.sample(available_users, min(count, len(available_users)))
+            elif criteria == "by_role":
+                # Prefer developers first, then others
+                developers = [u for u in available_users if "developer" in u.get("role", "").lower()]
+                others = [u for u in available_users if "developer" not in u.get("role", "").lower()]
+                selected_users = (developers + others)[:count]
+            else:  # least_busy - simple implementation
+                selected_users = available_users[:count]
+            
+            # Assign selected users
+            assignments = []
+            for user in selected_users:
+                result = await self.api_manager.project_members.assign_user(project_id, user.get("id"), "member")
+                if result.get("success"):
+                    assignments.append({
+                        "user_id": user.get("id"),
+                        "user_name": user.get("full_name", user.get("username")),
+                        "assigned": True
+                    })
+            
+            return {
+                "success": True,
+                "data": {
+                    "project_id": project_id,
+                    "assignments": assignments,
+                    "criteria": criteria,
+                    "requested_count": count,
+                    "actual_count": len(assignments)
+                },
+                "type": "auto_assignment"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in _auto_assign_users: {e}")
+            return {"success": False, "error": str(e)}
+    
     # UTILITY METHODS
     def _format_date(self, date_str: str) -> str:
         if not date_str:
@@ -546,6 +821,8 @@ class JSONExecutor:
                 return self._format_sprints(result["data"])
             elif result_type == "tasks":
                 return self._format_tasks(result["data"])
+            elif result_type == "users":
+                return self._format_users(result["data"])
             elif result_type in ["project", "sprint", "task"]:
                 return f"✅ {result_type.title()} created successfully!"
             elif result_type == "project_deleted":
@@ -560,6 +837,24 @@ class JSONExecutor:
                 data = result.get("data", {})
                 title = data.get("title", "Task")
                 return f"🗑️ **{title}** deleted successfully!"
+            elif result_type == "project_updated":
+                data = result.get("data", {})
+                name = data.get("name", "Project")
+                updated_fields = data.get("updated_fields", [])
+                fields_text = ", ".join(updated_fields) if updated_fields else "fields"
+                return f"✏️ **{name}** updated successfully! ({fields_text})"
+            elif result_type == "user_assigned":
+                data = result.get("data", {})
+                user_name = data.get("user_name", "User")
+                project_name = data.get("project_name", "Project")
+                role = data.get("role", "member")
+                return f"👥 **{user_name}** assigned to **{project_name}** as {role}!"
+            elif result_type == "user_removed":
+                return f"👥 User removed from project successfully!"
+            elif result_type == "project_members":
+                return self._format_project_members(result["data"])
+            elif result_type == "auto_assignment":
+                return self._format_auto_assignment(result["data"])
             elif result_type == "projects_bulk_deleted":
                 return self._format_bulk_deletion(result["data"])
             elif result_type == "sprints_bulk_deleted":
@@ -683,6 +978,38 @@ class JSONExecutor:
         
         return "\n".join(lines)
     
+    def _format_users(self, users: List[Dict]) -> str:
+        if not users:
+            return "👥 No users found"
+        
+        lines = ["👥 **Team Members:**\n"]
+        
+        for u in users:
+            # Extract user information
+            name = u.get("full_name", u.get("username", "Unknown"))
+            uid = u.get("id", "N/A")
+            email = u.get("email", "No email")
+            role = u.get("role", "Developer")
+            work_mode = u.get("work_mode", "Remote")
+            active = "🟢" if u.get("active", True) else "🔴"
+            
+            # Format role nicely
+            role_display = role.replace("_", " ").title() if role else "Developer"
+            
+            # Main line with name, ID and status
+            lines.append(f"• {active} **{name}** (ID: {uid})")
+            
+            # Secondary line with role, work mode and email
+            lines.append(f"  📧 {email}")
+            lines.append(f"  💼 {role_display} | 🏠 {work_mode}")
+            lines.append("")  # Empty line for spacing
+        
+        # Remove last empty line
+        if lines and lines[-1] == "":
+            lines.pop()
+        
+        return "\n".join(lines)
+    
     def _format_bulk_deletion(self, data: Dict) -> str:
         deleted = data.get("deleted", [])
         failed = data.get("failed", [])
@@ -740,5 +1067,55 @@ class JSONExecutor:
         
         if not deleted and not failed:
             lines.append("❌ No sprints found matching the pattern")
+        
+        return "\n".join(lines)
+    
+    def _format_project_members(self, members: List[Dict]) -> str:
+        if not members:
+            return "👥 No members assigned to this project"
+        
+        lines = ["👥 **Project Members:**\n"]
+        
+        for member in members:
+            user_details = member.get("user_details", {})
+            role = member.get("role", "member")
+            
+            if user_details:
+                name = user_details.get("full_name", user_details.get("username", "Unknown"))
+                email = user_details.get("email", "No email")
+                user_role = user_details.get("role", "Developer")
+                active = "🟢" if user_details.get("active", True) else "🔴"
+                
+                lines.append(f"• {active} **{name}** ({role.title()})")
+                lines.append(f"  📧 {email} | 💼 {user_role}")
+            else:
+                user_id = member.get("user_id", "Unknown")
+                lines.append(f"• User ID: {user_id} ({role.title()})")
+            
+            lines.append("")  # Empty line for spacing
+        
+        # Remove last empty line
+        if lines and lines[-1] == "":
+            lines.pop()
+        
+        return "\n".join(lines)
+    
+    def _format_auto_assignment(self, data: Dict) -> str:
+        assignments = data.get("assignments", [])
+        criteria = data.get("criteria", "random")
+        requested = data.get("requested_count", 0)
+        actual = data.get("actual_count", 0)
+        
+        lines = [f"🤖 **Auto-Assignment Complete** ({criteria}):\n"]
+        
+        if assignments:
+            lines.append(f"✅ **Assigned {actual}/{requested} users:**")
+            for assignment in assignments:
+                user_name = assignment.get("user_name", "Unknown")
+                lines.append(f"  • {user_name}")
+            lines.append("")
+        
+        if actual < requested:
+            lines.append(f"⚠️ Could only assign {actual} of {requested} requested users")
         
         return "\n".join(lines)

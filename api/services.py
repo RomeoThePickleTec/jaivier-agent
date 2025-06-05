@@ -56,7 +56,33 @@ class ProjectService:
     
     async def update(self, project_id: int, project_data: Dict) -> Dict:
         """Actualizar un proyecto"""
-        return await self.client._make_request("PUT", f"{self.base_path}/{project_id}", project_data)
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"Updating project {project_id} with data: {project_data}")
+            result = await self.client._make_request("PUT", f"{self.base_path}/{project_id}", project_data)
+            logger.info(f"Update API response: {result} (type: {type(result)})")
+            
+            # Handle different response types
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    logger.info(f"Project {project_id} updated successfully")
+                    return {"success": True, "updated": True}
+                elif result.get('error'):
+                    logger.error(f"Failed to update project {project_id}: {result.get('error')}")
+                    return result
+                else:
+                    logger.info(f"Project {project_id} updated successfully")
+                    return {"success": True, "updated": True}
+            else:
+                # Handle unexpected response types
+                logger.warning(f"Unexpected response type {type(result)}: {result}")
+                return {"success": True, "updated": True}
+                
+        except Exception as e:
+            logger.error(f"Error updating project {project_id}: {e}")
+            return {"error": str(e), "success": False}
     
     async def delete(self, project_id: int) -> Dict:
         """Eliminar un proyecto"""
@@ -221,6 +247,83 @@ class TaskService:
         }
         return await self.client._make_request("POST", "/asignee", assignment_data)
 
+class ProjectMemberService:
+    """Servicio para manejo de miembros de proyectos"""
+    
+    def __init__(self, client: APIClient):
+        self.client = client
+        self.base_path = "/projectmember"
+    
+    async def get_all(self) -> List[Dict]:
+        """Obtener todos los miembros de proyectos"""
+        result = await self.client._make_request("GET", self.base_path)
+        return result if isinstance(result, list) else []
+    
+    async def get_by_project(self, project_id: int) -> List[Dict]:
+        """Obtener miembros de un proyecto específico"""
+        result = await self.client._make_request("GET", f"{self.base_path}/project/{project_id}")
+        return result if isinstance(result, list) else []
+    
+    async def get_by_user(self, user_id: int) -> List[Dict]:
+        """Obtener proyectos de un usuario específico"""
+        result = await self.client._make_request("GET", f"{self.base_path}/user/{user_id}")
+        return result if isinstance(result, list) else []
+    
+    async def assign_user(self, project_id: int, user_id: int, role: str = "member") -> Dict:
+        """Asignar un usuario a un proyecto"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            assignment_data = {
+                "project_id": project_id,
+                "user_id": user_id,
+                "role": role
+            }
+            
+            logger.info(f"Assigning user {user_id} to project {project_id} as {role}")
+            result = await self.client._make_request("POST", self.base_path, assignment_data)
+            logger.info(f"Assignment API response: {result} (type: {type(result)})")
+            
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    logger.info(f"User {user_id} assigned to project {project_id} successfully")
+                    return {"success": True, "assigned": True}
+                elif result.get('error'):
+                    logger.error(f"Failed to assign user {user_id} to project {project_id}: {result.get('error')}")
+                    return result
+                else:
+                    logger.info(f"User {user_id} assigned to project {project_id} successfully")
+                    return {"success": True, "assigned": True}
+            else:
+                logger.warning(f"Unexpected response type {type(result)}: {result}")
+                return {"success": True, "assigned": True}
+                
+        except Exception as e:
+            logger.error(f"Error assigning user {user_id} to project {project_id}: {e}")
+            return {"error": str(e), "success": False}
+    
+    async def remove_user(self, project_id: int, user_id: int) -> Dict:
+        """Remover un usuario de un proyecto"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"Removing user {user_id} from project {project_id}")
+            result = await self.client._make_request("DELETE", f"{self.base_path}/{project_id}/{user_id}")
+            
+            if isinstance(result, dict):
+                if result.get('success') == True and not result.get('error'):
+                    return {"success": True, "removed": True}
+                else:
+                    return result
+            else:
+                return {"success": True, "removed": True}
+                
+        except Exception as e:
+            logger.error(f"Error removing user {user_id} from project {project_id}: {e}")
+            return {"error": str(e), "success": False}
+
 class APIManager:
     """Manager principal que agrupa todos los servicios"""
     
@@ -231,6 +334,7 @@ class APIManager:
         self.projects = ProjectService(self.client)
         self.sprints = SprintService(self.client)
         self.tasks = TaskService(self.client)
+        self.project_members = ProjectMemberService(self.client)
         self._authenticated = False
     
     async def initialize(self, username: str = None, password: str = None) -> bool:

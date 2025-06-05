@@ -25,6 +25,7 @@ class BotHandlers:
 • /proyectos - List projects
 • /sprints - List sprints  
 • /tareas - List tasks
+• /usuarios - List team members
 • /status - Check connection
 
 **Natural Language:**
@@ -50,6 +51,7 @@ Try: "crear proyecto MiApp" 🚀"""
 • /proyectos or "mostrar proyectos"
 • /sprints or "list sprints"
 • /tareas or "ver tareas"
+• /usuarios or "mostrar equipo"
 
 **EXAMPLES:**
 • "crear proyecto E-commerce"
@@ -239,19 +241,43 @@ Try: "crear proyecto MiApp" 🚀"""
                 await update.message.reply_text("👥 No users found")
                 return
             
-            lines = ["👥 **Users:**\n"]
+            lines = ["👥 **Team Members:**\n"]
             for u in users:
                 if isinstance(u, dict):
                     name = u.get("full_name", u.get("username", "Unknown"))
                     uid = u.get("id", "N/A")
                     email = u.get("email", "No email")
-                    active = "✅" if u.get("active", True) else "❌"
-                    lines.append(f"• **{name}** (ID: {uid}) {active}")
+                    role = u.get("role", "Developer")
+                    work_mode = u.get("work_mode", "Remote")
+                    active = "🟢" if u.get("active", True) else "🔴"
+                    
+                    # Format role nicely
+                    role_display = role.replace("_", " ").title() if role else "Developer"
+                    
+                    # Main line with name, ID and status
+                    lines.append(f"• {active} {name} (ID: {uid})")
+                    
+                    # Secondary line with role, work mode and email
                     lines.append(f"  📧 {email}")
+                    lines.append(f"  💼 {role_display} | 🏠 {work_mode}")
+                    lines.append("")  # Empty line for spacing
                 else:
                     lines.append(f"• {str(u)}")
             
-            await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+            # Remove last empty line
+            if lines and lines[-1] == "":
+                lines.pop()
+            
+            message_text = "\n".join(lines)
+            
+            # Try with markdown first, fallback to plain text
+            try:
+                await update.message.reply_text(message_text, parse_mode='Markdown')
+            except Exception as parse_error:
+                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
+                # Remove markdown formatting and send as plain text
+                plain_text = message_text.replace("**", "").replace("*", "")
+                await update.message.reply_text(plain_text)
             
         except Exception as e:
             logger.error(f"Error listing users: {e}")
@@ -314,7 +340,7 @@ Para proyectos complejos, te recomiendo:
                     await self.list_tasks_command(update, context)
                     return
             
-            if any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios"]):
+            if any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "equipo", "team", "mostrar equipo", "ver equipo"]):
                 await self.list_users_command(update, context)
                 return
             
