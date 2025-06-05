@@ -16,19 +16,19 @@ class BotHandlers:
         self.json_executor = json_executor
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        welcome = f"""🚀 **Jaivier Bot - Ready!**
+        welcome = f"""🚀 Jaivier Bot - Ready!
 
-✅ **Connected to:** {API_BASE_URL}
-👤 **User:** {DEFAULT_USERNAME}
+✅ Connected to: {API_BASE_URL}
+👤 User: {DEFAULT_USERNAME}
 
-**Commands:**
+Commands:
 • /proyectos - List projects
 • /sprints - List sprints  
 • /tareas - List tasks
 • /usuarios - List team members
 • /status - Check connection
 
-**Natural Language:**
+Natural Language:
 • "crear proyecto MyApp"
 • "new sprint Development"
 • "create task Login system"
@@ -36,33 +36,33 @@ class BotHandlers:
 • "proyecto completo WebShop"
 
 Try: "crear proyecto MiApp" 🚀"""
-        await update.message.reply_text(welcome, parse_mode='Markdown')
+        await update.message.reply_text(welcome)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        help_text = """📚 **Available Commands:**
+        help_text = """📚 Available Commands:
 
-**CREATE:**
+CREATE:
 • "crear proyecto [name]" - Create project
 • "new sprint [name]" - Create sprint
 • "create task [title]" - Create task
 • "proyecto completo [name]" - Full project setup
 
-**LIST:**
+LIST:
 • /proyectos or "mostrar proyectos"
 • /sprints or "list sprints"
 • /tareas or "ver tareas"
 • /usuarios or "mostrar equipo"
 
-**EXAMPLES:**
+EXAMPLES:
 • "crear proyecto E-commerce"
 • "new sprint for project 5"
 • "create 3 tasks: login, dashboard, profile"
 • "mostrar sprints del proyecto 2"
 
-**COMPLEX:**
+COMPLEX:
 • "proyecto completo llamado WebApp" (creates project + sprint + tasks)
         """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        await update.message.reply_text(help_text)
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔍 Checking connection...")
@@ -85,28 +85,28 @@ Try: "crear proyecto MiApp" 🚀"""
                 tasks = await self.api_manager.tasks.get_all()
                 logger.info(f"Tasks result: {tasks}")
                 
-                status_msg = f"""✅ **CONNECTED**
+                status_msg = f"""✅ CONNECTED
 
-🔗 **API:** {API_BASE_URL}
-👤 **User:** {DEFAULT_USERNAME}
-🔐 **Auth:** {self.api_manager.authenticated}
+🔗 API: {API_BASE_URL}
+👤 User: {DEFAULT_USERNAME}
+🔐 Auth: {self.api_manager.authenticated}
 
-📊 **Data:**
+📊 Data:
 • 📁 Projects: {len(projects) if projects else 0}
 • 🏃 Sprints: {len(sprints) if sprints else 0}
 • 📋 Tasks: {len(tasks) if tasks else 0}
 
-**Debug Info:**
+Debug Info:
 • Projects type: {type(projects)}
 • Sprints type: {type(sprints)}
 • Tasks type: {type(tasks)}"""
             else:
-                status_msg = f"""❌ **DISCONNECTED**
+                status_msg = f"""❌ DISCONNECTED
 
-🔗 **API:** {API_BASE_URL}
+🔗 API: {API_BASE_URL}
 ⚠️ Cannot reach server"""
             
-            await update.message.reply_text(status_msg, parse_mode='Markdown')
+            await update.message.reply_text(status_msg)
             
         except Exception as e:
             logger.error(f"Status check error: {e}")
@@ -133,14 +133,8 @@ Try: "crear proyecto MiApp" 🚀"""
             
             message_text = "\n".join(lines)
             
-            # Try with markdown first, fallback to plain text
-            try:
-                await update.message.reply_text(message_text, parse_mode='Markdown')
-            except Exception as parse_error:
-                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                # Remove markdown formatting and send as plain text
-                plain_text = message_text.replace("**", "").replace("*", "")
-                await update.message.reply_text(plain_text)
+            # Send as plain text
+            await update.message.reply_text(message_text)
             
         except Exception as e:
             logger.error(f"Error listing projects: {e}")
@@ -168,14 +162,8 @@ Try: "crear proyecto MiApp" 🚀"""
             
             message_text = "\n".join(lines)
             
-            # Try with markdown first, fallback to plain text
-            try:
-                await update.message.reply_text(message_text, parse_mode='Markdown')
-            except Exception as parse_error:
-                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                # Remove markdown formatting and send as plain text
-                plain_text = message_text.replace("**", "").replace("*", "")
-                await update.message.reply_text(plain_text)
+            # Send as plain text
+            await update.message.reply_text(message_text)
             
         except Exception as e:
             logger.error(f"Error listing sprints: {e}")
@@ -220,14 +208,8 @@ Try: "crear proyecto MiApp" 🚀"""
                 
                 message_text = "\n".join(lines)
                 
-                # Try with markdown first, fallback to plain text
-                try:
-                    await update.message.reply_text(message_text, parse_mode='Markdown')
-                except Exception as parse_error:
-                    logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                    # Remove markdown formatting and send as plain text
-                    plain_text = message_text.replace("**", "").replace("*", "")
-                    await update.message.reply_text(plain_text)
+                # Send as plain text to avoid markdown parsing errors
+                await update.message.reply_text(message_text)
             
         except Exception as e:
             logger.error(f"Error listing tasks: {e}")
@@ -241,7 +223,7 @@ Try: "crear proyecto MiApp" 🚀"""
                 await update.message.reply_text("👥 No users found")
                 return
             
-            lines = ["👥 **Team Members:**\n"]
+            lines = ["👥 Team Members:\n"]
             for u in users:
                 if isinstance(u, dict):
                     name = u.get("full_name", u.get("username", "Unknown"))
@@ -270,14 +252,8 @@ Try: "crear proyecto MiApp" 🚀"""
             
             message_text = "\n".join(lines)
             
-            # Try with markdown first, fallback to plain text
-            try:
-                await update.message.reply_text(message_text, parse_mode='Markdown')
-            except Exception as parse_error:
-                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                # Remove markdown formatting and send as plain text
-                plain_text = message_text.replace("**", "").replace("*", "")
-                await update.message.reply_text(plain_text)
+            # Send as plain text
+            await update.message.reply_text(message_text)
             
         except Exception as e:
             logger.error(f"Error listing users: {e}")
@@ -292,26 +268,26 @@ Try: "crear proyecto MiApp" 🚀"""
         try:
             # Check if message is too long
             if len(original_message) > 2000:
-                help_msg = f"""📝 **Mensaje muy largo** ({len(original_message)} caracteres)
+                help_msg = f"""📝 Mensaje muy largo ({len(original_message)} caracteres)
 
 Para proyectos complejos, te recomiendo:
 
-🔹 **Resumir la información esencial:**
+🔹 Resumir la información esencial:
    • Nombre del proyecto
    • Tecnologías principales  
    • Número de sprints
    • Objetivo general
 
-📋 **Ejemplo:**
+📋 Ejemplo:
    "crear proyecto Bookwise para app de reseñas de libros con TypeScript NextJS, 3 sprints: fundaciones, funcionalidad principal, deploy y mejoras"
 
-🤖 **Luego puedes pedir más detalles:**
+🤖 Luego puedes pedir más detalles:
    • "agregar más tareas al sprint 1"
    • "crear tareas específicas de autenticación"
 
 ¿Quieres intentarlo con un mensaje más corto?"""
                 
-                await update.message.reply_text(help_msg, parse_mode='Markdown')
+                await update.message.reply_text(help_msg)
                 return
             # Check if it's a creation, deletion, or assignment command first, before listing
             create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
@@ -349,8 +325,8 @@ Para proyectos complejos, te recomiendo:
                     await self.list_tasks_command(update, context)
                     return
             
-            # Only show users if it's not an assignment or removal command
-            if not is_assignment_command and not is_removal_command and any(word in message for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "users", "equipo", "team", "mostrar equipo", "ver equipo"]):
+            # Only show users if it's explicitly asking to list, not creating something
+            if not is_assignment_command and not is_removal_command and not is_create_command and any(phrase in message for phrase in ["mostrar usuario", "list user", "ver usuario", "mostrar equipo", "ver equipo", "list team"]):
                 await self.list_users_command(update, context)
                 return
             
@@ -389,34 +365,27 @@ Para proyectos complejos, te recomiendo:
                 except:
                     pass  # Ignore delete errors
             
-            # Try with markdown first, fallback to plain text
-            try:
-                await update.message.reply_text(response_text, parse_mode='Markdown')
-            except Exception as parse_error:
-                logger.warning(f"Markdown parsing failed, sending plain text: {parse_error}")
-                # Check if message is too long for Telegram
-                if len(response_text) > 4000:
-                    # Split into smaller parts
-                    lines = response_text.split('\n')
-                    current_chunk = ""
-                    
-                    for line in lines:
-                        if len(current_chunk + line + '\n') > 4000:
-                            # Send current chunk
-                            plain_chunk = current_chunk.replace("**", "").replace("*", "")
-                            await update.message.reply_text(plain_chunk)
-                            current_chunk = line + '\n'
-                        else:
-                            current_chunk += line + '\n'
-                    
-                    # Send remaining chunk
-                    if current_chunk.strip():
-                        plain_chunk = current_chunk.replace("**", "").replace("*", "")
-                        await update.message.reply_text(plain_chunk)
-                else:
-                    # Remove markdown formatting and send as plain text
-                    plain_text = response_text.replace("**", "").replace("*", "")
-                    await update.message.reply_text(plain_text)
+            # Send as plain text to avoid markdown parsing errors
+            # Check if message is too long for Telegram
+            if len(response_text) > 4000:
+                # Split into smaller parts
+                lines = response_text.split('\n')
+                current_chunk = ""
+                
+                for line in lines:
+                    if len(current_chunk + line + '\n') > 4000:
+                        # Send current chunk
+                        await update.message.reply_text(current_chunk)
+                        current_chunk = line + '\n'
+                    else:
+                        current_chunk += line + '\n'
+                
+                # Send remaining chunk
+                if current_chunk.strip():
+                    await update.message.reply_text(current_chunk)
+            else:
+                # Send as plain text
+                await update.message.reply_text(response_text)
             
         except asyncio.TimeoutError:
             if processing_msg:

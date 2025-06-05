@@ -611,8 +611,8 @@ class ImprovedAIAssistant:
                     "response_template": "❌ Please specify project (e.g., 'show members of project WebApp')"
                 }
         
-        # CREATE OPERATIONS
-        elif "crear proyecto" in message_lower or "new project" in message_lower:
+        # CREATE OPERATIONS - Check for creation keywords first
+        elif any(word in message_lower for word in ["crear proyecto", "new project", "crea el proyecto", "create project"]):
             name = self._extract_name(user_message, ["proyecto", "project"])
             return {
                 "operations": [
@@ -647,8 +647,8 @@ class ImprovedAIAssistant:
                 "response_template": f"✅ Task '{title}' created!"
             }
         
-        # LIST OPERATIONS
-        elif any(word in message_lower for word in ["mostrar usuario", "list user", "ver usuario", "usuarios", "users", "equipo", "team", "mostrar equipo", "ver equipo"]):
+        # LIST OPERATIONS - Only if explicitly asking to list, not just mentioning users
+        elif any(phrase in message_lower for phrase in ["mostrar usuario", "list user", "ver usuario", "mostrar equipo", "ver equipo", "list team"]) and not any(create_word in message_lower for create_word in ["crear", "create", "crea", "new"]):
             return {
                 "operations": [
                     {"type": "LIST_USERS", "data": {}}
@@ -825,6 +825,16 @@ class ImprovedAIAssistant:
         """Extract name from message"""
         message_lower = message.lower()
         
+        # Special handling for "crea el proyecto: ProjectName" pattern
+        if "crea el proyecto:" in message_lower:
+            parts = message_lower.split("crea el proyecto:")
+            if len(parts) > 1:
+                name_part = parts[1].strip()
+                # Extract just the first line/name
+                if "\n" in name_part:
+                    name_part = name_part.split("\n")[0].strip()
+                return name_part.title() if name_part else "New Item"
+        
         for keyword in keywords:
             if keyword in message_lower:
                 # Extract text after keyword
@@ -833,9 +843,12 @@ class ImprovedAIAssistant:
                     # Take text after keyword, clean it up
                     name_part = parts[-1].strip()
                     # Remove common stopwords
-                    for stop in [" llamado", " called", " named", " de", " para"]:
+                    for stop in [" llamado", " called", " named", " de", " para", ":"]:
                         if stop in name_part:
                             name_part = name_part.split(stop)[-1].strip()
+                    # Extract just the first line if it's multiline
+                    if "\n" in name_part:
+                        name_part = name_part.split("\n")[0].strip()
                     return name_part.title() if name_part else "New Item"
         
         return "New Item"

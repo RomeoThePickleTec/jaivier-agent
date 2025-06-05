@@ -1550,31 +1550,24 @@ class JSONExecutor:
             
             prompt += f"""
             
-            INSTRUCCIONES PARA DIFERENTES TIPOS DE PREGUNTAS:
+            INSTRUCCIONES PARA RESPONDER NATURALMENTE:
 
-            1. PREGUNTAS DE CONTEO (responder SOLO el número, SIN análisis):
-            - "cuántas tareas faltan" → "{stats.get('todo_tasks', 0)} tareas pendientes"
-            - "cuántas tareas quedan" → "{stats.get('todo_tasks', 0) + stats.get('in_progress_tasks', 0)} tareas restantes"  
-            - "cuántas tareas hay" → "{stats.get('total_tasks', 0)} tareas en total"
-            - "cuántas tareas completadas" → "{stats.get('completed_tasks', 0)} tareas completadas"
+            Eres un asistente inteligente que entiende el contexto y la intención del usuario. 
+            Analiza lo que realmente quiere saber y responde de la manera más útil y natural.
 
-            2. PREGUNTAS DE LISTADO (RESPONDER EXCLUSIVAMENTE LA LISTA):
-            Si la pregunta contiene "dame los nombres", "cuáles son", "que tareas", "lista de tareas":
-            - Buscar ÚNICAMENTE las tareas con status 0 (pendientes)
-            - Responder EXCLUSIVAMENTE:
-            "Tareas pendientes del proyecto [NOMBRE]:
-            • [Título tarea 1]  
-            • [Título tarea 2]
-            • [Título tarea 3]"
-            - TERMINAR LA RESPUESTA AHÍ
-            - PROHIBIDO: análisis, recomendaciones, explicaciones, contexto adicional
+            Ejemplos de cómo pensar:
+            - Si preguntan sobre números específicos, da el número pero siempre con contexto útil
+            - Si preguntan sobre qué tareas faltan, probablemente quieren saber cuáles son para poder trabajar en ellas
+            - Si preguntan sobre el estado general, quieren entender la situación completa
+            - Si preguntan por nombres específicos, están buscando información concreta para tomar acción
 
-            3. PREGUNTAS DE ANÁLISIS (dar análisis completo SOLO si NO es pregunta de listado):
-            - "como va el proyecto" → Análisis detallado
-            - "estado del proyecto" → Resumen con recomendaciones  
-            - "resumen del proyecto" → Análisis completo
-
-            REGLA CRÍTICA: Si detectas palabras como "dame los nombres", "cuáles son las tareas", es TIPO 2, NO análisis.
+            NO SIGAS REGLAS RÍGIDAS. En su lugar:
+            - Lee la pregunta y entiende la intención real
+            - Piensa qué información sería más útil para el usuario en ese contexto
+            - Responde de manera conversacional y natural
+            - Incluye el nivel de detalle que tenga sentido para la pregunta
+            - Si una respuesta corta es suficiente, sé conciso
+            - Si necesita más contexto para ser útil, proporciona más información
             
             Proporciona un análisis detallado que incluya:
             1. Estado actual del proyecto
@@ -1652,54 +1645,50 @@ class JSONExecutor:
             project = context_data.get("project", {})
             progress = stats.get("progress_percentage", 0)
             
-            # Check for specific task count questions - give direct, short answers
-            if any(phrase in query_lower for phrase in ["cuantas tareas faltan", "cuántas tareas faltan", "tareas pendientes"]):
-                pending_tasks = stats.get('todo_tasks', 0)
-                return f"📋 {pending_tasks} tareas pendientes en el proyecto {project.get('name', 'N/A')}"
+            # Analyze the query naturally and respond based on what would be most helpful
+            tasks = context_data.get('tasks', [])
+            pending_tasks = [t for t in tasks if t.get('status') == 0]
+            in_progress_tasks = [t for t in tasks if t.get('status') == 1]
+            completed_tasks = [t for t in tasks if t.get('status') == 2]
             
-            elif any(phrase in query_lower for phrase in ["cuantas tareas quedan", "cuántas tareas quedan", "tasks remaining"]):
-                remaining_tasks = stats.get('todo_tasks', 0) + stats.get('in_progress_tasks', 0)
-                return f"📋 {remaining_tasks} tareas restantes en el proyecto {project.get('name', 'N/A')}"
-            
-            elif any(phrase in query_lower for phrase in ["cuantas tareas hay", "cuántas tareas hay", "total tareas"]):
-                total_tasks = stats.get('total_tasks', 0)
-                return f"📋 {total_tasks} tareas en total en el proyecto {project.get('name', 'N/A')}"
-            
-            elif any(phrase in query_lower for phrase in ["cuantas tareas completadas", "cuántas tareas completadas", "tareas completadas"]):
-                completed_tasks = stats.get('completed_tasks', 0)
-                return f"📋 {completed_tasks} tareas completadas en el proyecto {project.get('name', 'N/A')}"
-            
-            elif any(phrase in query_lower for phrase in ["dame los nombres", "cuales son las tareas", "cuáles son las tareas", "que tareas faltan", "qué tareas faltan", "lista de tareas"]):
-                tasks = context_data.get('tasks', [])
-                pending_tasks = [t for t in tasks if t.get('status') == 0]  # Status 0 = pending
+            # If asking about what tasks are missing/pending, show them with context
+            if any(word in query_lower for word in ["faltan", "pendientes", "quedan", "faltantes"]):
+                if not pending_tasks:
+                    return f"🎉 ¡Excelente! No hay tareas pendientes en el proyecto {project.get('name', 'N/A')}. El proyecto está completado."
                 
-                if "pendientes" in query_lower or "faltan" in query_lower or "faltantes" in query_lower:
-                    if not pending_tasks:
-                        return f"📋 No hay tareas pendientes en el proyecto {project.get('name', 'N/A')}"
-                    
-                    task_names = [f"• {t.get('title', 'Sin título')}" for t in pending_tasks]
-                    return f"📋 Tareas pendientes del proyecto {project.get('name', 'N/A')}:\n\n" + "\n".join(task_names)
+                response = f"📋 {project.get('name', 'N/A')} - Tareas pendientes ({len(pending_tasks)}):\n\n"
+                for task in pending_tasks:
+                    response += f"• {task.get('title', 'Sin título')}\n"
+                
+                if len(pending_tasks) <= 5:
+                    response += f"\n💡 Quedan pocas tareas, ¡ya casi terminas!"
+                elif len(pending_tasks) > 10:
+                    response += f"\n⚠️ Hay bastantes tareas pendientes, considera priorizarlas."
+                
+                return response
+            
+            # If asking about specific counts, give the number with useful context
+            elif any(word in query_lower for word in ["cuantas", "cuántas", "how many"]):
+                if "pendientes" in query_lower or "faltan" in query_lower:
+                    return f"📋 {len(pending_tasks)} tareas pendientes en {project.get('name', 'N/A')}"
+                elif "total" in query_lower:
+                    return f"📋 {len(tasks)} tareas en total en {project.get('name', 'N/A')} ({len(completed_tasks)} completadas, {len(pending_tasks)} pendientes)"
                 else:
-                    # All tasks
-                    if not tasks:
-                        return f"📋 No hay tareas en el proyecto {project.get('name', 'N/A')}"
-                    
-                    task_names = [f"• {t.get('title', 'Sin título')}" for t in tasks]
-                    return f"📋 Todas las tareas del proyecto {project.get('name', 'N/A')}:\n\n" + "\n".join(task_names)
+                    return f"📋 {len(tasks)} tareas en {project.get('name', 'N/A')} ({progress}% completado)"
             
             # Default project analysis
-            analysis = f"📊 **Estado del Proyecto {project.get('name', 'N/A')}**\n\n"
-            analysis += f"**Progreso general:** {progress}% completado\n"
-            analysis += f"**Tareas:** {stats.get('completed_tasks', 0)}/{stats.get('total_tasks', 0)} completadas\n"
-            analysis += f"**Sprints:** {stats.get('active_sprints', 0)} activos de {stats.get('total_sprints', 0)} totales\n"
-            analysis += f"**Equipo:** {stats.get('team_size', 0)} miembros\n\n"
+            analysis = f"📊 Estado del Proyecto {project.get('name', 'N/A')}\n\n"
+            analysis += f"Progreso general: {progress}% completado\n"
+            analysis += f"Tareas: {stats.get('completed_tasks', 0)}/{stats.get('total_tasks', 0)} completadas\n"
+            analysis += f"Sprints: {stats.get('active_sprints', 0)} activos de {stats.get('total_sprints', 0)} totales\n"
+            analysis += f"Equipo: {stats.get('team_size', 0)} miembros\n\n"
             
             if progress < 30:
-                analysis += "🔥 **Recomendaciones:**\n- El proyecto está en etapa inicial\n- Enfocar en completar las tareas del primer sprint\n- Asegurar que el equipo tenga claridad en los objetivos"
+                analysis += "🔥 Recomendaciones:\n- El proyecto está en etapa inicial\n- Enfocar en completar las tareas del primer sprint\n- Asegurar que el equipo tenga claridad en los objetivos"
             elif progress < 70:
-                analysis += "⚡ **Recomendaciones:**\n- Buen progreso, mantener el ritmo\n- Revisar si hay tareas bloqueadas\n- Considerar planificación del siguiente sprint"
+                analysis += "⚡ Recomendaciones:\n- Buen progreso, mantener el ritmo\n- Revisar si hay tareas bloqueadas\n- Considerar planificación del siguiente sprint"
             else:
-                analysis += "🚀 **Recomendaciones:**\n- Excelente progreso\n- Preparar actividades de cierre\n- Documentar lecciones aprendidas"
+                analysis += "🚀 Recomendaciones:\n- Excelente progreso\n- Preparar actividades de cierre\n- Documentar lecciones aprendidas"
                 
         elif entity_type == "sprint":
             sprint = context_data.get("sprint", {})
