@@ -1,0 +1,11 @@
+# Jaivier Agent - Requirements
+# Bot de Telegram con AI para gestión de proyectos
+
+# Core Dependencies
+python-telegram-bot>=20.0
+aiohttp>=3.8.0
+google-generativeai>=0.3.0
+
+# Additional Dependencies (if needed)
+asyncio-mqtt>=0.11.0  # For MQTT support (optional)
+python-dotenv>=1.0.0  # For environment variables (optional)
