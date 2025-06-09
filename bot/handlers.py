@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from config.settings import API_BASE_URL
 from .auth_manager import chat_auth_manager
+from api.ia_generativa import ia_generativa
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,10 @@ Natural Language:
 • "mostrar proyectos"
 • "proyecto completo WebShop"
 
+AI Project Generation:
+• /iagenerativa - Generate complete projects with AI
+• "crear proyecto completo e-commerce con React"
+
 Try: "crear proyecto MiApp" 🚀"""
         else:
             welcome = f"""🚀 ¡Bienvenido a Jaivier Bot!
@@ -109,6 +114,10 @@ EXAMPLES:
 
 COMPLEX:
 • "proyecto completo llamado WebApp" (creates project + sprint + tasks)
+
+AI GENERATION:
+• /iagenerativa [descripción] - Generate complete project with AI
+• "crea un proyecto completo para una app de delivery con React Native y Node.js"
         """
         await update.message.reply_text(help_text)
     
@@ -369,6 +378,106 @@ Para usar Jaivier Bot necesitas autenticarte con tu cuenta de la API.
             logger.error(f"Error listing users: {e}")
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
+    async def ia_generativa_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Comando /iagenerativa para generar proyectos completos con IA"""
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        
+        # Get project description from command args
+        if context.args:
+            description = " ".join(context.args)
+        else:
+            # If no args provided, ask for description
+            await update.message.reply_text(
+                "🤖 **IA Generativa de Proyectos**\n\n"
+                "Puedes generar un proyecto completo con sprints, tareas y fechas automáticamente.\n\n"
+                "**Ejemplos:**\n"
+                "• `/iagenerativa app de delivery con React Native y Node.js`\n"
+                "• `/iagenerativa sistema IoT para invernadero con ESP32`\n"
+                "• `/iagenerativa plataforma e-commerce con Django y React`\n\n"
+                "**O simplemente escribe:**\n"
+                "`/iagenerativa [tu descripción del proyecto]`"
+            )
+            return
+        
+        if len(description) < 10:
+            await update.message.reply_text(
+                "📝 La descripción es muy corta. Intenta ser más específico:\n\n"
+                "**Ejemplo:**\n"
+                "`/iagenerativa crear una app móvil para gestión de inventario con React Native y Firebase`"
+            )
+            return
+        
+        # Show processing message
+        processing_msg = await update.message.reply_text(
+            f"🤖 **Generando proyecto completo con IA...**\n\n"
+            f"📝 Descripción: {description}\n\n"
+            f"⏳ Esto puede tomar unos segundos..."
+        )
+        
+        try:
+            # Generate complete project using IA Generativa
+            result = await ia_generativa.generate_complete_project(description, api_manager)
+            
+            # Delete processing message
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+            
+            if result.get("success"):
+                # Send success message with summary
+                summary = result.get("summary", "Proyecto generado exitosamente")
+                project_data = result.get("data", {})
+                
+                response_msg = f"""🎉 **¡Proyecto generado exitosamente!**
+
+{summary}
+
+📊 **Detalles de generación:**
+• 🤖 **Tecnología:** IA Generativa con Gemini
+• ⚡ **Velocidad:** Proyecto completo en segundos
+• 🎯 **Precisión:** Adaptado a tu descripción específica
+
+💡 **Próximos pasos:**
+• Usa `/proyectos` para ver tu nuevo proyecto
+• Usa `/sprints` para revisar los sprints generados  
+• Usa `/tareas` para ver todas las tareas creadas
+
+¡Tu proyecto está listo para comenzar a trabajar! 🚀"""
+                
+                await update.message.reply_text(response_msg)
+                
+            else:
+                error_msg = result.get("error", "Error desconocido")
+                await update.message.reply_text(
+                    f"❌ **Error generando proyecto:**\n\n"
+                    f"`{error_msg}`\n\n"
+                    f"💡 **Sugerencias:**\n"
+                    f"• Intenta con una descripción más detallada\n"
+                    f"• Especifica las tecnologías que quieres usar\n"
+                    f"• Verifica tu conexión con `/status`"
+                )
+        
+        except Exception as e:
+            logger.error(f"Error in ia_generativa command: {e}")
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+            
+            await update.message.reply_text(
+                f"❌ **Error ejecutando IA Generativa:**\n\n"
+                f"`{str(e)}`\n\n"
+                f"🔧 **Posibles soluciones:**\n"
+                f"• Verifica el estado con `/status`\n"
+                f"• Intenta con una descripción más simple\n"
+                f"• Contacta al administrador si persiste"
+            )
+    
     async def handle_natural_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle natural language commands and authentication flow"""
         chat_id = update.effective_chat.id
@@ -427,6 +536,66 @@ Para proyectos complejos, te recomiendo:
                 
                 await update.message.reply_text(help_msg)
                 return
+            # Check if it's an AI generation command first
+            ai_generation_keywords = ["proyecto completo", "complete project", "generar proyecto", "generate project", 
+                                    "crear proyecto completo", "create complete project", "proyecto con sprints", 
+                                    "project with sprints", "proyecto automatico", "automatic project"]
+            is_ai_generation = any(keyword in message for keyword in ai_generation_keywords)
+            
+            if is_ai_generation:
+                # Extract description for AI generation
+                description = original_message
+                # Remove common prefixes
+                for prefix in ["crear", "generar", "create", "generate", "dame", "hazme", "crea"]:
+                    if description.lower().startswith(prefix):
+                        description = description[len(prefix):].strip()
+                
+                # Call IA Generativa directly
+                processing_msg = await update.message.reply_text(
+                    f"🤖 **Generando proyecto completo con IA...**\n\n"
+                    f"📝 Descripción: {description}\n\n"
+                    f"⏳ Esto puede tomar unos segundos..."
+                )
+                
+                try:
+                    result = await ia_generativa.generate_complete_project(description, api_manager)
+                    
+                    try:
+                        await processing_msg.delete()
+                    except:
+                        pass
+                    
+                    if result.get("success"):
+                        summary = result.get("summary", "Proyecto generado exitosamente")
+                        response_msg = f"""🎉 **¡Proyecto generado exitosamente!**
+
+{summary}
+
+📊 **Detalles:**
+• 🤖 IA Generativa con Gemini
+• ⚡ Proyecto completo en segundos
+• 🎯 Adaptado a tu descripción
+
+💡 **Ver resultados:**
+• `/proyectos` - Ver proyecto creado
+• `/sprints` - Ver sprints generados  
+• `/tareas` - Ver tareas creadas"""
+                        
+                        await update.message.reply_text(response_msg)
+                    else:
+                        error_msg = result.get("error", "Error desconocido")
+                        await update.message.reply_text(f"❌ Error generando proyecto: {error_msg}")
+                
+                except Exception as e:
+                    logger.error(f"Error in natural AI generation: {e}")
+                    try:
+                        await processing_msg.delete()
+                    except:
+                        pass
+                    await update.message.reply_text(f"❌ Error ejecutando IA Generativa: {str(e)}")
+                
+                return
+            
             # Check if it's a creation, deletion, or assignment command first, before listing
             create_keywords = ["crear", "agregar", "añadir", "nueva", "nuevo", "create", "add", "creame", "hazme", "genera", "generar"]
             delete_keywords = ["eliminar", "elminame", "delete", "borrar", "remove"]

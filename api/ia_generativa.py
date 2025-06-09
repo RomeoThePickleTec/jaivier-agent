@@ -146,17 +146,143 @@ class IAGenerativaProjects:
             logger.error(f"Error generating project structure with AI: {e}")
             return self._generate_fallback_structure(description)
     
+    def _extract_project_name(self, description: str) -> str:
+        """Extract project name from description"""
+        import re
+        
+        # Try different patterns to extract project name
+        patterns = [
+            r'app(?:\s+(?:móvil|mobile))?\s+(?:para|for|de|of)\s+(.+?)(?:\s+con|\s+with|\s*$)',
+            r'proyecto(?:\s+(?:de|for))?\s+(.+?)(?:\s+con|\s+with|\s*$)',
+            r'sistema(?:\s+(?:de|for))?\s+(.+?)(?:\s+con|\s+with|\s*$)',
+            r'plataforma(?:\s+(?:de|for))?\s+(.+?)(?:\s+con|\s+with|\s*$)',
+            r'(?:crear|create|generar|generate)(?:\s+(?:un|una|a))?\s+(.+?)(?:\s+con|\s+with|\s*$)'
+        ]
+        
+        desc_clean = description.strip()
+        
+        for pattern in patterns:
+            match = re.search(pattern, desc_clean, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                # Clean up the name
+                name = re.sub(r'\s+', ' ', name)  # Remove extra spaces
+                name = name.title()  # Capitalize properly
+                if len(name) > 3 and len(name) < 50:  # Reasonable length
+                    return name
+        
+        # Fallback: try to extract key words
+        key_words = []
+        if 'delivery' in desc_clean.lower() or 'entrega' in desc_clean.lower():
+            key_words.append('Delivery')
+        if 'comida' in desc_clean.lower() or 'food' in desc_clean.lower():
+            key_words.append('Food')
+        if 'app' in desc_clean.lower() or 'aplicación' in desc_clean.lower():
+            key_words.append('App')
+        if 'ecommerce' in desc_clean.lower() or 'e-commerce' in desc_clean.lower():
+            key_words.append('E-commerce')
+        if 'iot' in desc_clean.lower():
+            key_words.append('IoT')
+        if 'invernadero' in desc_clean.lower() or 'greenhouse' in desc_clean.lower():
+            key_words.append('Greenhouse')
+        
+        if key_words:
+            return ' '.join(key_words)
+        
+        return None
+    
+    def _generate_project_description(self, description: str, project_type: str) -> str:
+        """Generate a better project description based on input"""
+        desc_lower = description.lower()
+        
+        if project_type == "mobile":
+            if 'delivery' in desc_lower or 'entrega' in desc_lower:
+                if 'comida' in desc_lower or 'food' in desc_lower:
+                    return "Aplicación móvil para delivery de comida con geolocalización, seguimiento en tiempo real y sistema de pagos integrado"
+                else:
+                    return "Aplicación móvil de delivery con funcionalidades de geolocalización y seguimiento de pedidos"
+            elif 'ecommerce' in desc_lower or 'e-commerce' in desc_lower or 'tienda' in desc_lower:
+                return "Aplicación móvil de comercio electrónico con carrito de compras, pagos y gestión de productos"
+            elif 'inventario' in desc_lower or 'inventory' in desc_lower:
+                return "Aplicación móvil para gestión de inventario con escaneo de códigos y reportes en tiempo real"
+            else:
+                return f"Aplicación móvil desarrollada con tecnologías modernas - {description[:100]}"
+                
+        elif project_type == "web":
+            if 'ecommerce' in desc_lower or 'e-commerce' in desc_lower:
+                return "Plataforma web de comercio electrónico con gestión completa de productos, usuarios y pagos"
+            elif 'dashboard' in desc_lower or 'panel' in desc_lower:
+                return "Dashboard web administrativo con análisis de datos y gestión de contenido"
+            else:
+                return f"Aplicación web moderna - {description[:100]}"
+                
+        elif project_type == "iot":
+            if 'invernadero' in desc_lower or 'greenhouse' in desc_lower:
+                return "Sistema IoT para automatización de invernadero con sensores ambientales y control remoto"
+            elif 'sensor' in desc_lower:
+                return "Sistema IoT con múltiples sensores para monitoreo y automatización inteligente"
+            else:
+                return f"Sistema IoT automatizado - {description[:100]}"
+        
+        return f"Proyecto de software - {description[:100]}"
+    
+    def _extract_technologies(self, description: str, default_techs: list) -> list:
+        """Extract technologies mentioned in description"""
+        desc_lower = description.lower()
+        mentioned_techs = []
+        
+        # Technology mapping
+        tech_map = {
+            'react native': 'React Native',
+            'react': 'React',
+            'node.js': 'Node.js',
+            'nodejs': 'Node.js', 
+            'node': 'Node.js',
+            'firebase': 'Firebase',
+            'mongodb': 'MongoDB',
+            'mysql': 'MySQL',
+            'postgresql': 'PostgreSQL',
+            'django': 'Django',
+            'flask': 'Flask',
+            'express': 'Express',
+            'vue': 'Vue.js',
+            'angular': 'Angular',
+            'typescript': 'TypeScript',
+            'javascript': 'JavaScript',
+            'python': 'Python',
+            'esp32': 'ESP32',
+            'arduino': 'Arduino',
+            'redis': 'Redis',
+            'docker': 'Docker',
+            'aws': 'AWS',
+            'gcp': 'Google Cloud',
+            'azure': 'Azure'
+        }
+        
+        for tech_key, tech_name in tech_map.items():
+            if tech_key in desc_lower:
+                mentioned_techs.append(tech_name)
+        
+        # If we found technologies in description, use them + some defaults
+        if mentioned_techs:
+            # Add some complementary technologies
+            result = mentioned_techs.copy()
+            if 'React Native' in mentioned_techs and 'Redux' not in mentioned_techs:
+                result.append('Redux')
+            if 'React' in mentioned_techs and 'React Native' not in mentioned_techs:
+                if 'Node.js' not in mentioned_techs:
+                    result.append('Node.js')
+            return result[:6]  # Limit to 6 technologies
+        
+        return default_techs
+    
     def _generate_fallback_structure(self, description: str) -> Dict:
         """Generate fallback structure without AI"""
         
-        # Extract project name from description
-        lines = description.split('\n')
-        project_name = "Generated Project"
-        
-        for line in lines:
-            if "proyecto:" in line.lower() or "project:" in line.lower():
-                project_name = line.split(':')[-1].strip()
-                break
+        # Extract project name from description with better logic
+        project_name = self._extract_project_name(description)
+        if not project_name:
+            project_name = "Generated Project"
         
         # Detect if it's a specific type of project
         desc_lower = description.lower()
@@ -172,11 +298,15 @@ class IAGenerativaProjects:
     
     def _generate_iot_project_structure(self, name: str, description: str) -> Dict:
         """Generate IoT/Hardware project structure"""
+        
+        project_description = self._generate_project_description(description, "iot")
+        technologies = self._extract_technologies(description, ["ESP32", "Sensors", "MicroPython", "Firebase", "React"])
+        
         return {
             "project": {
                 "name": name,
-                "description": "IoT project with hardware components and data monitoring",
-                "technologies": ["ESP32", "Sensors", "MicroPython", "Firebase", "React"],
+                "description": project_description,
+                "technologies": technologies,
                 "duration_weeks": 6,
                 "team_size": 2
             },
@@ -235,11 +365,15 @@ class IAGenerativaProjects:
     
     def _generate_web_project_structure(self, name: str, description: str) -> Dict:
         """Generate Web project structure"""
+        
+        project_description = self._generate_project_description(description, "web")
+        technologies = self._extract_technologies(description, ["React", "Node.js", "Express", "MongoDB", "TailwindCSS"])
+        
         return {
             "project": {
                 "name": name,
-                "description": "Web application with frontend and backend components",
-                "technologies": ["React", "Node.js", "Express", "MongoDB", "TailwindCSS"],
+                "description": project_description,
+                "technologies": technologies,
                 "duration_weeks": 8,
                 "team_size": 3
             },
@@ -298,41 +432,82 @@ class IAGenerativaProjects:
     
     def _generate_mobile_project_structure(self, name: str, description: str) -> Dict:
         """Generate Mobile app project structure"""
+        
+        # Generate more specific description based on input
+        project_description = self._generate_project_description(description, "mobile")
+        technologies = self._extract_technologies(description, ["React Native", "Expo", "Firebase", "Redux", "TypeScript"])
+        
         return {
             "project": {
                 "name": name,
-                "description": "Mobile application for iOS and Android",
-                "technologies": ["React Native", "Expo", "Firebase", "Redux", "TypeScript"],
+                "description": project_description,
+                "technologies": technologies,
                 "duration_weeks": 10,
                 "team_size": 3
             },
             "sprints": [
                 {
                     "name": "Sprint 1 - Setup & Navigation",
-                    "description": "Project setup and navigation structure",
+                    "description": "Configuración inicial del proyecto React Native, navegación y pantallas básicas de la app",
                     "duration_weeks": 2,
-                    "objectives": ["Development setup", "Navigation", "Basic screens"]
+                    "objectives": ["Configuración React Native", "Sistema de navegación", "Pantallas principales"]
                 },
                 {
-                    "name": "Sprint 2 - Authentication & Core",
-                    "description": "User authentication and core features",
-                    "duration_weeks": 3,
-                    "objectives": ["Authentication", "Core features", "Data management"]
-                },
-                {
-                    "name": "Sprint 3 - Advanced Features",
-                    "description": "Advanced functionality and integrations",
-                    "duration_weeks": 3,
-                    "objectives": ["Advanced features", "Push notifications", "Offline support"]
-                },
-                {
-                    "name": "Sprint 4 - Polish & Release",
-                    "description": "UI polish, testing, and app store release",
+                    "name": "Sprint 2 - Authentication & Core Features", 
+                    "description": "Sistema de autenticación de usuarios, gestión de perfiles y funcionalidades principales",
                     "duration_weeks": 2,
-                    "objectives": ["UI polish", "Testing", "App store submission"]
+                    "objectives": ["Login/registro usuarios", "Perfiles de usuario", "Funcionalidades core"]
+                },
+                {
+                    "name": "Sprint 3 - Advanced Features & Integrations",
+                    "description": "Funcionalidades avanzadas como geolocalización, notificaciones push y integración con APIs",
+                    "duration_weeks": 2,
+                    "objectives": ["Geolocalización", "Push notifications", "Integración APIs"]
+                },
+                {
+                    "name": "Sprint 4 - Testing & App Store Release",
+                    "description": "Optimización de UI/UX, testing completo en dispositivos y preparación para publicación",
+                    "duration_weeks": 2,
+                    "objectives": ["Pulido de UI/UX", "Testing en dispositivos", "Publicación stores"]
                 }
             ],
-            "tasks": [
+            "tasks": self._generate_mobile_tasks(description)
+        }
+    
+    def _generate_mobile_tasks(self, description: str) -> list:
+        """Generate mobile-specific tasks based on description"""
+        desc_lower = description.lower()
+        
+        if 'delivery' in desc_lower and ('comida' in desc_lower or 'food' in desc_lower):
+            # Delivery food app tasks
+            return [
+                # Sprint 1 - Setup & Navigation
+                {"title": "Configurar entorno React Native", "description": "Configurar entorno de desarrollo, dependencias y estructura del proyecto", "sprint_index": 0, "priority": "high", "estimated_hours": 6, "dependencies": []},
+                {"title": "Crear navegación principal", "description": "Implementar navegación entre pantallas principales (Home, Restaurantes, Pedidos, Perfil)", "sprint_index": 0, "priority": "high", "estimated_hours": 8, "dependencies": []},
+                {"title": "Diseñar pantallas base", "description": "Crear wireframes y pantallas base para la app de delivery", "sprint_index": 0, "priority": "high", "estimated_hours": 12, "dependencies": []},
+                {"title": "Configurar Redux/Context", "description": "Configurar gestión de estado global para la aplicación", "sprint_index": 0, "priority": "medium", "estimated_hours": 6, "dependencies": []},
+                
+                # Sprint 2 - Authentication & Core Features
+                {"title": "Sistema de autenticación", "description": "Implementar login/registro con email y redes sociales", "sprint_index": 1, "priority": "high", "estimated_hours": 14, "dependencies": []},
+                {"title": "Catálogo de restaurantes", "description": "Mostrar lista de restaurantes con filtros y búsqueda", "sprint_index": 1, "priority": "high", "estimated_hours": 16, "dependencies": []},
+                {"title": "Menú de restaurante", "description": "Pantalla detalle de restaurante con menú y productos", "sprint_index": 1, "priority": "high", "estimated_hours": 12, "dependencies": []},
+                {"title": "Carrito de compras", "description": "Funcionalidad para agregar productos al carrito", "sprint_index": 1, "priority": "high", "estimated_hours": 10, "dependencies": []},
+                
+                # Sprint 3 - Advanced Features & Integrations
+                {"title": "Geolocalización y mapas", "description": "Integrar GPS para ubicación del usuario y seguimiento de delivery", "sprint_index": 2, "priority": "high", "estimated_hours": 16, "dependencies": []},
+                {"title": "Sistema de pagos", "description": "Integrar pasarela de pagos (tarjetas, PayPal, etc.)", "sprint_index": 2, "priority": "high", "estimated_hours": 14, "dependencies": []},
+                {"title": "Notificaciones push", "description": "Notificaciones para estados del pedido y promociones", "sprint_index": 2, "priority": "high", "estimated_hours": 8, "dependencies": []},
+                {"title": "Seguimiento en tiempo real", "description": "Tracking del repartidor y tiempo estimado de entrega", "sprint_index": 2, "priority": "medium", "estimated_hours": 12, "dependencies": []},
+                
+                # Sprint 4 - Testing & Release
+                {"title": "Optimización UI/UX", "description": "Pulir interfaz de usuario y experiencia de navegación", "sprint_index": 3, "priority": "high", "estimated_hours": 12, "dependencies": []},
+                {"title": "Testing en dispositivos", "description": "Pruebas completas en dispositivos iOS y Android", "sprint_index": 3, "priority": "high", "estimated_hours": 10, "dependencies": []},
+                {"title": "Optimización de rendimiento", "description": "Mejorar velocidad de carga y consumo de batería", "sprint_index": 3, "priority": "medium", "estimated_hours": 8, "dependencies": []},
+                {"title": "Preparar para tiendas", "description": "Generar builds y preparar metadata para App Store y Google Play", "sprint_index": 3, "priority": "high", "estimated_hours": 6, "dependencies": []}
+            ]
+        else:
+            # Generic mobile app tasks
+            return [
                 # Sprint 1
                 {"title": "Setup React Native environment", "description": "Configure development environment", "sprint_index": 0, "priority": "high", "estimated_hours": 6, "dependencies": []},
                 {"title": "Create navigation structure", "description": "Setup navigation between screens", "sprint_index": 0, "priority": "high", "estimated_hours": 10, "dependencies": []},
@@ -357,7 +532,6 @@ class IAGenerativaProjects:
                 {"title": "Test on devices", "description": "Test on real devices", "sprint_index": 3, "priority": "high", "estimated_hours": 12, "dependencies": []},
                 {"title": "App store submission", "description": "Prepare and submit to stores", "sprint_index": 3, "priority": "high", "estimated_hours": 8, "dependencies": []}
             ]
-        }
     
     def _generate_generic_project_structure(self, name: str, description: str) -> Dict:
         """Generate generic project structure"""
@@ -436,14 +610,22 @@ class IAGenerativaProjects:
             project_id = project.get("id")
             created_sprints = []
             
-            # Create sprints
+            # Create sprints with proper sequential dates
+            base_start_date = datetime.now()
             for i, sprint_info in enumerate(sprints_info):
+                # Calculate sprint duration from structure (default 2 weeks)
+                sprint_duration_weeks = sprint_info.get("duration_weeks", 2)
+                
+                # Calculate dates: each sprint starts after the previous one ends
+                sprint_start = base_start_date + timedelta(weeks=i * sprint_duration_weeks)
+                sprint_end = sprint_start + timedelta(weeks=sprint_duration_weeks)
+                
                 sprint_data = {
                     "name": sprint_info.get("name", f"Sprint {i+1}"),
                     "description": sprint_info.get("description", ""),
                     "project_id": project_id,
-                    "start_date": (datetime.now() + timedelta(weeks=i*2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_date": (datetime.now() + timedelta(weeks=(i+1)*2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "start_date": sprint_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end_date": sprint_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "status": 0  # Active
                 }
                 

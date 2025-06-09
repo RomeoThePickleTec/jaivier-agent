@@ -75,6 +75,10 @@ class JaivierBot:
         app.add_handler(CommandHandler("proyectos", self.handlers.list_projects_command))
         app.add_handler(CommandHandler("sprints", self.handlers.list_sprints_command))
         app.add_handler(CommandHandler("tareas", self.handlers.list_tasks_command))
+        app.add_handler(CommandHandler("usuarios", self.handlers.list_users_command))
+        
+        # IA Generativa
+        app.add_handler(CommandHandler("iagenerativa", self.handlers.ia_generativa_command))
         
         # Mensajes naturales
         app.add_handler(MessageHandler(
