@@ -231,10 +231,10 @@ class APIManager:
         self.authenticated = False
     
     async def initialize(self, username: str = None, password: str = None) -> bool:
-        from config.settings import DEFAULT_USERNAME, DEFAULT_PASSWORD
+        if not username or not password:
+            raise ValueError("Username and password are required for authentication")
         
-        username = username or DEFAULT_USERNAME
-        password = password or DEFAULT_PASSWORD
+        # No default credentials anymore - must be provided explicitly
         
         try:
             success = await self.client.authenticate(username, password)

@@ -10,14 +10,17 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class JSONExecutor:
-    def __init__(self, api_manager, context_manager):
-        self.api_manager = api_manager
+    def __init__(self, context_manager=None):
+        # Removed fixed api_manager, now passed per execution
         self.context_manager = context_manager
         self.created_items = {}  # Store created items for reference
         
-    async def execute_operations(self, operations_json: Dict, user_id: int, update) -> str:
+    async def execute_operations(self, operations_json: Dict, user_id: int, update, api_manager) -> str:
         operations = operations_json.get("operations", [])
         self.created_items = {}  # Reset for each execution
+        
+        # Set api_manager temporarily for this execution
+        self.api_manager = api_manager
         
         results = []
         logger.info(f"[EXECUTOR] Executing {len(operations)} operations")
@@ -182,26 +185,103 @@ class JSONExecutor:
         
         # Store reference for later operations
         if reference and result.get("success") and result.get("data"):
+            # Store both the raw data and a more convenient structure
             self.created_items[reference] = result["data"]
+            
+            # For lists, also store in a more accessible way
+            if isinstance(result["data"], list):
+                # Store the list under a predictable name based on operation type
+                if op_type == "LIST_TASKS":
+                    self.created_items[f"{reference}_tasks"] = result["data"]
+                    # Also create an object with tasks field for AI compatibility
+                    self.created_items[f"{reference}"] = {"tasks": result["data"]}
+                elif op_type == "LIST_PROJECTS":
+                    self.created_items[f"{reference}_projects"] = result["data"]
+                    self.created_items[f"{reference}"] = {"projects": result["data"]}
+                elif op_type == "LIST_USERS":
+                    self.created_items[f"{reference}_users"] = result["data"]
+                    self.created_items[f"{reference}"] = {"users": result["data"]}
+            
+            logger.info(f"[EXECUTOR] Stored reference '{reference}': {type(result['data'])} with {len(result['data']) if isinstance(result['data'], list) else 'non-list'} items")
         
         return result
     
     def _resolve_references(self, data: Dict) -> Dict:
-        """Resolve $reference.field patterns"""
+        """Resolve $reference.field patterns including array access"""
         resolved = {}
         for key, value in data.items():
             if isinstance(value, str) and value.startswith("$"):
                 ref = value[1:]  # Remove $
-                if "." in ref:
-                    ref_name, field = ref.split(".", 1)
-                    if ref_name in self.created_items:
-                        resolved[key] = self.created_items[ref_name].get(field)
+                resolved_value = self._resolve_reference_path(ref)
+                if resolved_value is not None:
+                    resolved[key] = resolved_value
                 else:
-                    if ref in self.created_items:
-                        resolved[key] = self.created_items[ref].get("id")
+                    resolved[key] = value  # Keep original if can't resolve
             else:
                 resolved[key] = value
         return resolved
+    
+    def _resolve_reference_path(self, ref_path: str):
+        """Resolve complex reference paths like 'tasks_found.tasks[0].id'"""
+        try:
+            logger.info(f"[EXECUTOR] Resolving reference path: '{ref_path}'")
+            parts = ref_path.split(".")
+            ref_name = parts[0]
+            
+            if ref_name not in self.created_items:
+                logger.warning(f"[EXECUTOR] Reference '{ref_name}' not found. Available: {list(self.created_items.keys())}")
+                return None
+            
+            current_value = self.created_items[ref_name]
+            logger.info(f"[EXECUTOR] Starting with reference '{ref_name}': {type(current_value)}")
+            
+            # Process each part of the path
+            for part in parts[1:]:
+                if "[" in part and "]" in part:
+                    # Handle array access like 'tasks[0]'
+                    field_name = part.split("[")[0]
+                    index_str = part.split("[")[1].split("]")[0]
+                    
+                    try:
+                        index = int(index_str)
+                        if isinstance(current_value, dict) and field_name in current_value:
+                            array = current_value[field_name]
+                            if isinstance(array, list) and 0 <= index < len(array):
+                                current_value = array[index]
+                            else:
+                                return None
+                        else:
+                            return None
+                    except (ValueError, IndexError):
+                        return None
+                else:
+                    # Regular field access
+                    if isinstance(current_value, dict):
+                        current_value = current_value.get(part)
+                    elif isinstance(current_value, list):
+                        # If it's a list, try to access by index or field in first item
+                        try:
+                            index = int(part)
+                            if 0 <= index < len(current_value):
+                                current_value = current_value[index]
+                            else:
+                                return None
+                        except ValueError:
+                            # Not an index, might be accessing field of first item
+                            if current_value and isinstance(current_value[0], dict):
+                                current_value = current_value[0].get(part)
+                            else:
+                                return None
+                    else:
+                        return None
+                
+                if current_value is None:
+                    return None
+            
+            return current_value
+        except Exception as e:
+            logger.error(f"Error resolving reference path '{ref_path}': {e}")
+            return None
     
     # CREATE OPERATIONS
     async def _create_project(self, data: Dict, user_id: int) -> Dict:
@@ -348,7 +428,23 @@ class JSONExecutor:
     async def _list_tasks(self, data: Dict) -> Dict:
         project_id = data.get("project_id")
         sprint_id = data.get("sprint_id")
+        title_filter = data.get("title") or data.get("search") or data.get("name")
+        
+        # Get all tasks first
         tasks = await self.api_manager.tasks.get_all(project_id, sprint_id)
+        
+        # Filter by title if specified
+        if title_filter:
+            filtered_tasks = []
+            filter_lower = title_filter.lower()
+            for task in tasks:
+                task_title = task.get("title", "").lower()
+                if filter_lower in task_title:
+                    filtered_tasks.append(task)
+            
+            logger.info(f"Filtered {len(tasks)} tasks to {len(filtered_tasks)} matching '{title_filter}'")
+            tasks = filtered_tasks
+        
         return {"success": True, "data": tasks, "type": "tasks"}
     
     async def _list_users(self, data: Dict) -> Dict:
@@ -440,7 +536,71 @@ class JSONExecutor:
         return {"success": False, "error": "Update not implemented yet"}
     
     async def _update_task(self, data: Dict) -> Dict:
-        return {"success": False, "error": "Update not implemented yet"}
+        task_id = data.get("id") or data.get("task_id")
+        task_title = data.get("title")
+        
+        # If no ID but we have a title, search for the task
+        if not task_id and task_title:
+            try:
+                tasks = await self.api_manager.tasks.get_all()
+                for task in tasks:
+                    if task.get("title", "").lower() == task_title.lower():
+                        task_id = task.get("id")
+                        break
+                
+                if not task_id:
+                    return {"success": False, "error": f"Task with title '{task_title}' not found"}
+            except Exception as e:
+                return {"success": False, "error": f"Error searching for task: {str(e)}"}
+        
+        if not task_id:
+            return {"success": False, "error": "Task ID is required for update"}
+        
+        # Prepare update data
+        update_data = {}
+        
+        # Map all possible fields that can be updated
+        field_mapping = {
+            "title": "title",
+            "description": "description", 
+            "priority": "priority",
+            "status": "status",
+            "estimated_hours": "estimated_hours",
+            "due_date": "due_date",
+            "project_id": "project_id",
+            "sprint_id": "sprint_id"
+        }
+        
+        for key, api_field in field_mapping.items():
+            if key in data and data[key] is not None:
+                if key == "status":
+                    # Convert status if it's a string
+                    update_data[api_field] = self._parse_status(data[key], "task")
+                elif key == "priority":
+                    # Convert priority if it's a string  
+                    update_data[api_field] = self._parse_priority(data[key])
+                elif key == "due_date":
+                    # Format date if provided
+                    update_data[api_field] = self._format_date(data[key])
+                else:
+                    update_data[api_field] = data[key]
+        
+        if not update_data:
+            return {"success": False, "error": "No valid fields to update"}
+        
+        try:
+            logger.info(f"Updating task {task_id} with data: {update_data}")
+            result = await self.api_manager.tasks.update(task_id, update_data)
+            
+            if result and not result.get("error"):
+                return {"success": True, "data": {"id": task_id, **update_data}, "type": "task"}
+            else:
+                error_msg = result.get("error", "Unknown error") if result else "No response from API"
+                return {"success": False, "error": f"Failed to update task: {error_msg}"}
+                
+        except Exception as e:
+            logger.error(f"Error updating task {task_id}: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _update_user(self, data: Dict) -> Dict:
         user_id = data.get("id") or data.get("user_id")

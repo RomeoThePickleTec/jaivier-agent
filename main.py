@@ -5,8 +5,7 @@ import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-from config.settings import TELEGRAM_BOT_TOKEN, API_BASE_URL, LOG_LEVEL, LOG_FORMAT, DEFAULT_USERNAME, DEFAULT_PASSWORD
-from api.services import APIManager  # Updated import
+from config.settings import TELEGRAM_BOT_TOKEN, LOG_LEVEL, LOG_FORMAT
 from ai.improved_assistant import ImprovedAIAssistant
 from ai.json_executor import JSONExecutor
 from bot.handlers import BotHandlers
@@ -22,11 +21,10 @@ class JaivierBot:
     """Bot principal de Jaivier"""
     
     def __init__(self):
-        # Inicializar componentes
-        self.api_manager = APIManager(API_BASE_URL)
+        # Inicializar componentes (sin API manager global)
         self.ai_assistant = ImprovedAIAssistant()
-        self.json_executor = JSONExecutor(self.api_manager, None)  # Se asignará después
-        self.handlers = BotHandlers(self.api_manager, self.ai_assistant, self.json_executor)
+        self.json_executor = JSONExecutor(None)  # No context manager needed
+        self.handlers = BotHandlers(self.ai_assistant, self.json_executor)
         
         # Estado del bot
         self.initialized = False
@@ -36,13 +34,9 @@ class JaivierBot:
         logger.info("🔐 Inicializando Jaivier Bot...")
         
         try:
-            # Inicializar API Manager con credenciales
-            success = await self.api_manager.initialize(DEFAULT_USERNAME, DEFAULT_PASSWORD)
-            if not success:
-                logger.error("❌ Error inicializando API Manager")
-                return False
-            
-            logger.info("✅ API Manager inicializado correctamente")
+            # No need for global API initialization anymore
+            # Each chat will authenticate individually
+            logger.info("✅ Bot components initialized")
             self.initialized = True
             return True
             
@@ -54,7 +48,13 @@ class JaivierBot:
         """Limpiar recursos del bot"""
         logger.info("🧹 Limpiando recursos del bot...")
         try:
-            await self.api_manager.close()
+            # Cleanup will be handled by individual chat sessions
+            from bot.auth_manager import chat_auth_manager
+            
+            # Logout all active sessions
+            for chat_id in list(chat_auth_manager.chat_sessions.keys()):
+                chat_auth_manager.logout_chat(chat_id)
+            
             logger.info("✅ Recursos limpiados correctamente")
         except Exception as e:
             logger.error(f"❌ Error limpiando recursos: {e}")
@@ -68,6 +68,8 @@ class JaivierBot:
         app.add_handler(CommandHandler("ayuda", self.handlers.help_command))
         app.add_handler(CommandHandler("help", self.handlers.help_command))
         app.add_handler(CommandHandler("status", self.handlers.status_command))
+        app.add_handler(CommandHandler("login", self.handlers.login_command))
+        app.add_handler(CommandHandler("logout", self.handlers.logout_command))
         
         # Comandos de datos
         app.add_handler(CommandHandler("proyectos", self.handlers.list_projects_command))
@@ -109,8 +111,7 @@ class JaivierBot:
             
             # Mostrar información de inicio
             logger.info("🤖 Jaivier Bot iniciado y listo para recibir comandos!")
-            logger.info(f"🔗 API: {API_BASE_URL}")
-            logger.info(f"👤 Usuario autenticado: {self.api_manager.authenticated}")
+            logger.info("🔐 Autenticación por chat individual activada")
             logger.info("📱 Busca @Jaivier21Bot en Telegram")
             logger.info("Presiona Ctrl+C para detener el bot")
             
@@ -174,9 +175,7 @@ def main():
             success = await bot.initialize()
             if not success:
                 print("❌ Error: No se pudo inicializar el bot")
-                print(f"   Verifica que la API esté ejecutándose en: {API_BASE_URL}")
-                print("   Y que las credenciales de autenticación sean correctas")
-                print(f"   Usuario: {DEFAULT_USERNAME}")
+                print("   Verifica la configuración del bot")
                 return
             
             # Ejecutar bot

@@ -1,25 +1,55 @@
-# bot/handlers.py - COMPLETE VERSION
-"""Complete bot handlers with full CRUD support"""
+# bot/handlers.py - COMPLETE VERSION WITH AUTH
+"""Complete bot handlers with full CRUD support and authentication"""
 
 import logging
 import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
-from config.settings import API_BASE_URL, DEFAULT_USERNAME
+from config.settings import API_BASE_URL
+from .auth_manager import chat_auth_manager
 
 logger = logging.getLogger(__name__)
 
 class BotHandlers:
-    def __init__(self, api_manager, ai_assistant, json_executor):
-        self.api_manager = api_manager
+    def __init__(self, ai_assistant, json_executor):
+        # Removed global api_manager, now using per-chat authentication
         self.ai_assistant = ai_assistant  
         self.json_executor = json_executor
     
+    async def _require_auth(self, update: Update) -> bool:
+        """
+        Verificar autenticación requerida para comandos
+        Returns True si está autenticado, False si no
+        """
+        chat_id = update.effective_chat.id
+        
+        if not chat_auth_manager.is_authenticated(chat_id):
+            await update.message.reply_text(
+                "🔐 Necesitas autenticarte primero.\n\n"
+                "Usa /login para iniciar sesión con tus credenciales."
+            )
+            return False
+        
+        # Verificar si el token sigue válido
+        token_valid = await chat_auth_manager.check_and_refresh_token(chat_id)
+        if not token_valid:
+            await update.message.reply_text(
+                "⚠️ Tu sesión ha expirado.\n\n"
+                "Usa /login para volver a autenticarte."
+            )
+            return False
+        
+        return True
+    
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        welcome = f"""🚀 Jaivier Bot - Ready!
+        chat_id = update.effective_chat.id
+        
+        if chat_auth_manager.is_authenticated(chat_id):
+            username = chat_auth_manager.get_username(chat_id)
+            welcome = f"""🚀 Jaivier Bot - Ready!
 
 ✅ Connected to: {API_BASE_URL}
-👤 User: {DEFAULT_USERNAME}
+👤 Logged in as: {username}
 
 Commands:
 • /proyectos - List projects
@@ -27,6 +57,7 @@ Commands:
 • /tareas - List tasks
 • /usuarios - List team members
 • /status - Check connection
+• /logout - Log out
 
 Natural Language:
 • "crear proyecto MyApp"
@@ -36,6 +67,23 @@ Natural Language:
 • "proyecto completo WebShop"
 
 Try: "crear proyecto MiApp" 🚀"""
+        else:
+            welcome = f"""🚀 ¡Bienvenido a Jaivier Bot!
+
+🔐 Para usar el bot, necesitas autenticarte primero.
+
+Usa el comando /login para iniciar sesión con tus credenciales de la API.
+
+🔗 API: {API_BASE_URL}
+
+Una vez autenticado podrás:
+• Gestionar proyectos, sprints y tareas
+• Usar comandos naturales en español/inglés
+• Asignar usuarios a proyectos
+• Y mucho más!
+
+👋 ¡Comienza con /login!"""
+        
         await update.message.reply_text(welcome)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -64,46 +112,84 @@ COMPLEX:
         """
         await update.message.reply_text(help_text)
     
+    async def login_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Iniciar proceso de autenticación"""
+        chat_id = update.effective_chat.id
+        
+        if chat_auth_manager.is_authenticated(chat_id):
+            username = chat_auth_manager.get_username(chat_id)
+            await update.message.reply_text(f"✅ Ya estás autenticado como: {username}\n\nUsa /logout para cerrar sesión.")
+            return
+        
+        # Iniciar flujo de autenticación
+        chat_auth_manager.start_auth_flow(chat_id)
+        
+        login_msg = """🔐 Proceso de Autenticación
+
+Para usar Jaivier Bot necesitas autenticarte con tu cuenta de la API.
+
+👤 Envía tu nombre de usuario:"""
+        
+        await update.message.reply_text(login_msg)
+    
+    async def logout_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Cerrar sesión"""
+        chat_id = update.effective_chat.id
+        
+        if chat_auth_manager.logout_chat(chat_id):
+            await update.message.reply_text("👋 Sesión cerrada exitosamente.\n\nUsa /login para volver a autenticarte.")
+        else:
+            await update.message.reply_text("ℹ️ No hay sesión activa.\n\nUsa /login para autenticarte.")
+    
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        username = chat_auth_manager.get_username(chat_id)
+        session_info = chat_auth_manager.get_session_info(chat_id)
+        
         await update.message.reply_text("🔍 Checking connection...")
         
         try:
-            health = await self.api_manager.health_check()
+            health = await api_manager.health_check()
             logger.info(f"Health check result: {health}")
             
             if health:
                 # Get counts with detailed logging
                 logger.info("Getting projects...")
-                projects = await self.api_manager.projects.get_all()
+                projects = await api_manager.projects.get_all()
                 logger.info(f"Projects result: {projects}")
                 
                 logger.info("Getting sprints...")
-                sprints = await self.api_manager.sprints.get_all()
+                sprints = await api_manager.sprints.get_all()
                 logger.info(f"Sprints result: {sprints}")
                 
                 logger.info("Getting tasks...")
-                tasks = await self.api_manager.tasks.get_all()
+                tasks = await api_manager.tasks.get_all()
                 logger.info(f"Tasks result: {tasks}")
+                
+                login_time = session_info.get('login_time')
+                expires_at = session_info.get('expires_at')
                 
                 status_msg = f"""✅ CONNECTED
 
 🔗 API: {API_BASE_URL}
-👤 User: {DEFAULT_USERNAME}
-🔐 Auth: {self.api_manager.authenticated}
+👤 User: {username}
+🔐 Auth: ✅ Active
+⏰ Login: {login_time.strftime('%H:%M:%S')}
+⏳ Expires: {expires_at.strftime('%H:%M:%S')}
 
 📊 Data:
 • 📁 Projects: {len(projects) if projects else 0}
 • 🏃 Sprints: {len(sprints) if sprints else 0}
-• 📋 Tasks: {len(tasks) if tasks else 0}
-
-Debug Info:
-• Projects type: {type(projects)}
-• Sprints type: {type(sprints)}
-• Tasks type: {type(tasks)}"""
+• 📋 Tasks: {len(tasks) if tasks else 0}"""
             else:
                 status_msg = f"""❌ DISCONNECTED
 
 🔗 API: {API_BASE_URL}
+👤 User: {username}
 ⚠️ Cannot reach server"""
             
             await update.message.reply_text(status_msg)
@@ -113,8 +199,14 @@ Debug Info:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def list_projects_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        
         try:
-            projects = await self.api_manager.projects.get_all()
+            projects = await api_manager.projects.get_all()
             
             if not projects:
                 await update.message.reply_text("📁 No projects found")
@@ -141,8 +233,14 @@ Debug Info:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def list_sprints_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        
         try:
-            sprints = await self.api_manager.sprints.get_all()
+            sprints = await api_manager.sprints.get_all()
             
             if not sprints:
                 await update.message.reply_text("🏃 No sprints found")
@@ -170,9 +268,15 @@ Debug Info:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def list_tasks_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        
         try:
             logger.info("Starting task retrieval...")
-            tasks = await self.api_manager.tasks.get_all()
+            tasks = await api_manager.tasks.get_all()
             logger.info(f"Retrieved {len(tasks) if tasks else 0} tasks: {tasks}")
             
             if not tasks:
@@ -216,8 +320,14 @@ Debug Info:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def list_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._require_auth(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
+        
         try:
-            users = await self.api_manager.users.get_all()
+            users = await api_manager.users.get_all()
             
             if not users:
                 await update.message.reply_text("👥 No users found")
@@ -260,10 +370,38 @@ Debug Info:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def handle_natural_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle natural language commands"""
+        """Handle natural language commands and authentication flow"""
+        chat_id = update.effective_chat.id
         message = update.message.text.lower()
         original_message = update.message.text
         processing_msg = None
+        
+        # Handle authentication flow
+        if chat_auth_manager.is_in_auth_flow(chat_id):
+            try:
+                response_msg, is_complete = chat_auth_manager.process_auth_input(chat_id, original_message)
+                await update.message.reply_text(response_msg)
+                
+                if is_complete:
+                    # Complete authentication
+                    success, auth_msg = await chat_auth_manager.complete_authentication(chat_id)
+                    await update.message.reply_text(auth_msg)
+                    if success:
+                        # Show welcome message after successful login
+                        await self.start_command(update, context)
+                
+                return
+            except Exception as e:
+                logger.error(f"Error in auth flow for chat {chat_id}: {e}")
+                await update.message.reply_text("❌ Error en el proceso de autenticación. Intenta /login nuevamente.")
+                return
+        
+        # Require authentication for all other messages
+        if not await self._require_auth(update):
+            return
+        
+        # Get API manager for this chat
+        api_manager = chat_auth_manager.get_api_manager(chat_id)
         
         try:
             # Check if message is too long
@@ -335,8 +473,8 @@ Para proyectos complejos, te recomiendo:
             
             # Build context with available projects and sprints
             try:
-                projects = await self.api_manager.projects.get_all()
-                sprints = await self.api_manager.sprints.get_all()
+                projects = await api_manager.projects.get_all()
+                sprints = await api_manager.sprints.get_all()
                 
                 context = {
                     "available_projects": projects[:5],  # Limit to avoid too much context
@@ -353,9 +491,9 @@ Para proyectos complejos, te recomiendo:
             
             logger.info(f"[BOT] Generated operations: {operations_json}")
             
-            # Execute operations
+            # Execute operations with chat-specific API manager
             response_text = await asyncio.wait_for(
-                self.json_executor.execute_operations(operations_json, update.effective_user.id, update),
+                self.json_executor.execute_operations(operations_json, update.effective_user.id, update, api_manager),
                 timeout=60.0
             )
             

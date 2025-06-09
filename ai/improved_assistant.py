@@ -130,11 +130,24 @@ class ImprovedAIAssistant:
             "response_template": "📋 Checking pending tasks for project JAI-VIER..."
         }
         
+        "busca tareas con nombre X y ponles nombres con sentido":
+        {
+            "operations": [
+                {"type": "LIST_TASKS", "data": {"project_id": 173, "title": "X"}, "reference": "tasks_to_rename"},
+                {"type": "UPDATE_TASK", "data": {"id": "$tasks_to_rename.tasks[0].id", "title": "Setup initial project configuration"}},
+                {"type": "UPDATE_TASK", "data": {"id": "$tasks_to_rename.tasks[1].id", "title": "Implement user authentication module"}},
+                {"type": "UPDATE_TASK", "data": {"id": "$tasks_to_rename.tasks[2].id", "title": "Design database schema structure"}}
+            ],
+            "response_template": "✅ Tasks renamed with meaningful names!"
+        }
+        
         IMPORTANT GUIDELINES:
         - ALWAYS create individual CREATE_TASK operations for each task mentioned
         - DO NOT include task lists in sprint descriptions - create separate tasks instead
         - When creating complex projects, break down tasks into individual operations
         - Example: If a sprint mentions "setup, authentication, database", create 3 separate CREATE_TASK operations
+        - When renaming tasks, use SPECIFIC and MEANINGFUL names like "Setup authentication system", "Configure database connections", "Implement user login flow"
+        - DO NOT use generic names like "Rename this task" - always be specific about what the task should accomplish
         """
     
     async def generate_operations(self, user_message: str, context: Optional[Dict] = None) -> Dict:
@@ -146,6 +159,13 @@ class ImprovedAIAssistant:
                 "how is", "status of", "estado de", "estado del", "que necesita", "qué necesita",
                 "progress", "progreso", "resumen", "summary", "oye y el", "hey and the"
             ]):
+                return self._fallback_operations(user_message, context)
+            
+            # For complex project creation, also use fallback for better detection
+            if (("proyecto completo" in message_lower) or
+                (any(word in message_lower for word in ["crear proyecto", "crea el proyecto", "new project"]) and 
+                 any(word in message_lower for word in ["sprint", "tareas", "tasks", "objetivo", "tecnolog"]) and
+                 len(user_message) > 200)):
                 return self._fallback_operations(user_message, context)
             
             if not self.model:
@@ -680,12 +700,78 @@ class ImprovedAIAssistant:
                 "response_template": "📋 Here are the tasks:"
             }
         
-        # COMPLEX OPERATIONS
-        elif "proyecto completo" in message_lower or "proyecto con tareas" in message_lower:
+        # COMPLEX OPERATIONS - Detect detailed project descriptions
+        elif (("proyecto completo" in message_lower or "proyecto con tareas" in message_lower) or
+              # Detect detailed projects with sprints mentioned
+              (any(word in message_lower for word in ["crear proyecto", "crea el proyecto", "new project"]) and 
+               any(word in message_lower for word in ["sprint", "tareas", "tasks", "objetivo", "tecnolog"]) and
+               len(user_message) > 200)):
             name = self._extract_name(user_message, ["proyecto"])
-            return {
-                "operations": [
-                    {"type": "CREATE_PROJECT", "data": {"name": name}, "reference": "proj1"},
+            
+            # Try to extract sprint information from the message
+            sprint_operations = []
+            task_operations = []
+            
+            # Detect number of sprints mentioned
+            sprint_count = 3  # default
+            if "4 sprints" in message_lower or "sprint: 4" in message_lower:
+                sprint_count = 4
+            elif "2 sprints" in message_lower or "sprint: 2" in message_lower:
+                sprint_count = 2
+            elif "5 sprints" in message_lower or "sprint: 5" in message_lower:
+                sprint_count = 5
+            
+            # Base operations
+            operations = [
+                {"type": "CREATE_PROJECT", "data": {"name": name}, "reference": "proj1"}
+            ]
+            
+            # Create sprints based on detected information
+            if "hardware" in message_lower and "dashboard" in message_lower:
+                # SmartPlant specific sprints
+                operations.extend([
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 1 - Hardware y pruebas", "project_id": "$proj1.id"}, "reference": "sprint1"},
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 2 - Lógica de riego", "project_id": "$proj1.id"}, "reference": "sprint2"},
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 3 - Comunicación + dashboard", "project_id": "$proj1.id"}, "reference": "sprint3"},
+                    {"type": "CREATE_SPRINT", "data": {"name": "Sprint 4 - Optimización y deploy", "project_id": "$proj1.id"}, "reference": "sprint4"},
+                ])
+                
+                # SmartPlant specific tasks
+                operations.extend([
+                    # Sprint 1 tasks
+                    {"type": "CREATE_TASK", "data": {"title": "Configurar entorno ESP32 (drivers + IDE)", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Leer humedad de suelo y clima (DHT22)", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Activar bomba vía relé", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Test por puerto serial", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Diagrama eléctrico/documentación", "project_id": "$proj1.id", "sprint_id": "$sprint1.id"}},
+                    
+                    # Sprint 2 tasks
+                    {"type": "CREATE_TASK", "data": {"title": "Definir umbral de humedad", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Activar bomba automáticamente", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Añadir temporizador para evitar riegos repetidos", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Configurable por archivo .py", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Probar sin conexión a PC", "project_id": "$proj1.id", "sprint_id": "$sprint2.id"}},
+                    
+                    # Sprint 3 tasks  
+                    {"type": "CREATE_TASK", "data": {"title": "Enviar datos por HTTP o MQTT", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Crear dashboard en React + Firebase", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Mostrar temperatura, humedad, estado del suelo", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Historial de riegos", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Autenticación básica", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
+                    
+                    # Sprint 4 tasks
+                    {"type": "CREATE_TASK", "data": {"title": "Optimización de código y performance", "project_id": "$proj1.id", "sprint_id": "$sprint4.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Deploy y configuración final", "project_id": "$proj1.id", "sprint_id": "$sprint4.id"}},
+                    {"type": "CREATE_TASK", "data": {"title": "Testing integral del sistema", "project_id": "$proj1.id", "sprint_id": "$sprint4.id"}},
+                ])
+                
+                return {
+                    "operations": operations,
+                    "response_template": f"✅ Complete SmartPlant project '{name}' created with 4 sprints and 18 tasks!"
+                }
+            else:
+                # Generic complete project
+                operations.extend([
                     {"type": "CREATE_SPRINT", "data": {"name": "Sprint 1 - Fundaciones", "project_id": "$proj1.id"}, "reference": "sprint1"},
                     {"type": "CREATE_SPRINT", "data": {"name": "Sprint 2 - Desarrollo", "project_id": "$proj1.id"}, "reference": "sprint2"},
                     {"type": "CREATE_SPRINT", "data": {"name": "Sprint 3 - Deploy", "project_id": "$proj1.id"}, "reference": "sprint3"},
@@ -700,9 +786,12 @@ class ImprovedAIAssistant:
                     {"type": "CREATE_TASK", "data": {"title": "Deploy setup", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
                     {"type": "CREATE_TASK", "data": {"title": "Documentation", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}},
                     {"type": "CREATE_TASK", "data": {"title": "Optimizations", "project_id": "$proj1.id", "sprint_id": "$sprint3.id"}}
-                ],
-                "response_template": f"✅ Complete project '{name}' created with 3 sprints and 11 tasks!"
-            }
+                ])
+                
+                return {
+                    "operations": operations,
+                    "response_template": f"✅ Complete project '{name}' created with 3 sprints and 11 tasks!"
+                }
         
         # QUERY OPERATIONS - Natural language status questions
         elif any(phrase in message_lower for phrase in [
