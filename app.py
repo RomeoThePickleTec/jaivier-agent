@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import google.generativeai as genai
 import re
+import os
 
 # Configuración de logging
 logging.basicConfig(
@@ -17,13 +18,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuración
-TELEGRAM_BOT_TOKEN = "8054295560:AAGGaiqV7Un5TM_2yemt1XrFnvTrbzDnYKE"
-GEMINI_API_KEY = "TU_GEMINI_API_KEY"  # Reemplaza con tu API key
-API_BASE_URL = "http://220.158.78.114:8081"
+TELEGRAM_BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
+GEMINI_API_KEY = os.environ['GEMINI_KEY']  # Reemplaza con tu API key
+API_BASE_URL = os.environ['BACK_API']
 
-# Credenciales por defecto
-DEFAULT_USERNAME = "djeison"
-DEFAULT_PASSWORD = "Hello123"
 
 # Configurar Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -361,8 +359,7 @@ class JaivierBot:
 🚀 ¡Bienvenido a Jaivier Bot!
 
 ✅ **Estado:** Conectado y autenticado
-🔗 **API:** {API_BASE_URL}
-👤 **Usuario:** {DEFAULT_USERNAME}
+🔗 **API:** {API_BASE_URL} 
 
 Soy tu asistente para gestionar proyectos, tareas y sprints.
 
@@ -403,7 +400,6 @@ Soy tu asistente para gestionar proyectos, tareas y sprints.
 ✅ **Estado: CONECTADO**
 
 🔗 **API:** {API_BASE_URL}
-👤 **Usuario:** {DEFAULT_USERNAME}
 🔑 **Token:** Válido
 
 📊 **Estadísticas:**
